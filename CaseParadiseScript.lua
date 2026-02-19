@@ -1,6 +1,6 @@
--- Case Paradise Script (Premium Native UI) v3.11 GOD DUMP
+-- Case Paradise Script (Premium Native UI) v3.12 CHUNKED EXPORT
 -- Author: Antigravity
--- Status: GOD MODE DUMP (Full System Scan to File)
+-- Status: CHUNKED DUMPS + CLIPBOARD FALLBACK
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,7 +23,7 @@ local function Log(msg)
     if #LogBuffer > 2000 then table.remove(LogBuffer, 1) end
 end
 
-Log("Script V3.11 GOD DUMP Initializing...")
+Log("Script V3.12 CHUNKED EXPORT Initializing...")
 
 -- [CONFIG]
 local Config = {
@@ -46,7 +46,7 @@ local Theme = {
     ToggleOff = Color3.fromRGB(50, 50, 55),
     ToggleOn = Color3.fromRGB(0, 200, 100),
     Search = Color3.fromRGB(40, 40, 45),
-    GodMode = Color3.fromRGB(255, 50, 50) -- RED for God Mode
+    GodMode = Color3.fromRGB(255, 50, 50) 
 }
 
 -- [REMOTES & DATA]
@@ -226,10 +226,21 @@ local function FindItem(itemName)
     ItemResultsFrame.CanvasSize = UDim2.new(0,0,0, #results * 55)
 end
 
--- [FILE EXPORT FUNCTIONS]
-local function SaveStringToFile(fileName, content)
-    Log("Attempting to save file: " .. fileName)
-    local s, err = pcall(function()
+-- [FILE EXPORT + CLIPBOARD FALLBACK]
+local function SaveData(fileName, content)
+    Log("Processing: " .. fileName)
+    
+    -- 1. Try CLIPBOARD (Priority)
+    local cbSuccess, cbErr = pcall(function()
+        if setclipboard then
+            setclipboard(content)
+            return true
+        end
+        return false
+    end)
+    
+    -- 2. Try WRITEFILE
+    local wfSuccess, wfErr = pcall(function()
         if writefile then
             writefile(fileName, content)
             return true
@@ -237,42 +248,42 @@ local function SaveStringToFile(fileName, content)
         return false
     end)
     
-    if s then
-        Log("File Saved Successfully: " .. fileName)
-        StarterGui:SetCore("SendNotification", {Title="FILE SAVED!", Text="Check Workspace Folder: "..fileName, Duration=5})
+    if cbSuccess and wfSuccess then
+        StarterGui:SetCore("SendNotification", {Title="SUCCESS!", Text="Saved to File AND Clipboard!", Duration=5})
+        Log("SUCCESS: Saved to File + Clipboard.")
+    elseif cbSuccess then
+        StarterGui:SetCore("SendNotification", {Title="COPIED!", Text="Saved to Clipboard (File failed)", Duration=5})
+        Log("WARN: File save failed, but Clipboard succeeded.")
+    elseif wfSuccess then
+        StarterGui:SetCore("SendNotification", {Title="SAVED!", Text="Saved to File (Clipboard failed)", Duration=5})
+        Log("WARN: Clipboard failed, but File save succeeded.")
     else
-        Log("ERROR: File Save Failed: " .. tostring(err))
-        StarterGui:SetCore("SendNotification", {Title="Save Failed", Text="Your executor might not support writefile.", Duration=5})
+        Log("CRITICAL: Both File and Clipboard failed.")
+        print(content) -- Last resort
+        StarterGui:SetCore("SendNotification", {Title="FAILED", Text="Check Console (F9) for Output", Duration=5})
     end
 end
 
--- [GOD MODE DUMP]
-local function GodModeDump()
-    Log("STARTING GOD MODE DUMP...")
-    local buffer = {}
-    table.insert(buffer, "--- CASE PARADISE GOD DUMP V3.11 ---")
-    table.insert(buffer, "Date: " .. os.date("%c"))
+-- [CHUNKED DUMP FUNCTIONS]
+local function SerializeTable(t, indent, buffer, depth)
+    depth = depth or 0
+    if depth > 5 then table.insert(buffer, indent .. " (Max Depth)"); return end
     
-    -- Helper: Serialize Table
-    local function serializeTable(t, indent)
-        for k,v in pairs(t) do
-            local keyStr = tostring(k)
-            local valStr = tostring(v)
-            if type(v) == "table" then
-                table.insert(buffer, indent .. "[" .. keyStr .. "] (Table):")
-                if indent:len() < 20 then -- Prevent infinite recursion
-                     serializeTable(v, indent .. "  ")
-                else
-                     table.insert(buffer, indent .. "  (Max Depth Reached)")
-                end
-            else
-                table.insert(buffer, indent .. "[" .. keyStr .. "] = " .. valStr)
-            end
+    for k,v in pairs(t) do
+        local keyStr = tostring(k)
+        local valStr = tostring(v)
+        if type(v) == "table" then
+            table.insert(buffer, indent .. "[" .. keyStr .. "] (Table):")
+            SerializeTable(v, indent .. "  ", buffer, depth + 1)
+        else
+            table.insert(buffer, indent .. "[" .. keyStr .. "] = " .. valStr)
         end
     end
+end
 
-    -- 1. Dump ReplicatedStorage (Structure)
-    table.insert(buffer, "\n=== REPLICATED STORAGE STRUCTURE ===")
+local function DumpRemotes()
+    Log("Dumping Remotes...")
+    local buffer = {"--- RETRIEVING REMOTES & RS STRUCTURE ---"}
     local function scan(obj, indent)
         pcall(function()
             table.insert(buffer, indent .. obj.Name .. " [" .. obj.ClassName .. "]")
@@ -282,49 +293,43 @@ local function GodModeDump()
         end)
     end
     scan(ReplicatedStorage, "")
-    
-    -- 2. Dump Modules Content
-    table.insert(buffer, "\n=== MODULES CONTENT ===")
+    table.insert(buffer, "--- END REMOTES ---")
+    SaveData("CP_Remotes.txt", table.concat(buffer, "\n"))
+end
+
+local function DumpModules()
+    Log("Dumping All Modules...")
+    local buffer = {"--- DUMPING ALL MODULES ---"}
     local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
     if modulesFolder then
         for _, mod in pairs(modulesFolder:GetDescendants()) do
             if mod:IsA("ModuleScript") then
-                table.insert(buffer, "\n-- Module: " .. mod.Name .. " (" .. mod:GetFullName() .. ") --")
+                table.insert(buffer, "\n-- Module: " .. mod.Name .. " --")
                 local s, data = pcall(function() return require(mod) end)
                 if s and type(data) == "table" then
-                    serializeTable(data, "  ")
-                elseif s then
-                    table.insert(buffer, "  Returned: " .. tostring(data))
+                    SerializeTable(data, "  ", buffer)
                 else
-                    table.insert(buffer, "  Require Failed: " .. tostring(data))
+                    table.insert(buffer, "  Status: " .. tostring(data))
                 end
             end
         end
+    else
+        table.insert(buffer, "NO MODULES FOLDER FOUND")
     end
-    
-    -- 3. Dump Workspace (Interactables)
-    table.insert(buffer, "\n=== WORKSPACE INTERACTABLES ===")
+    table.insert(buffer, "--- END MODULES ---")
+    SaveData("CP_Modules.txt", table.concat(buffer, "\n"))
+end
+
+local function DumpWorkspace()
+    Log("Dumping Workspace Interactables...")
+    local buffer = {"--- WORKSPACE INTERACTABLES ---"}
     for _, v in pairs(Workspace:GetDescendants()) do
         if v:IsA("ProximityPrompt") or v:IsA("ClickDetector") or v:IsA("TouchTransmitter") then
-            table.insert(buffer, "Interactable: " .. v.Name .. " | Parent: " .. v.Parent:GetFullName() .. " | Class: " .. v.ClassName)
+            table.insert(buffer, "Interactable: " .. v.Name .. " | Parent: " .. v.Parent:GetFullName())
         end
     end
-    
-    -- 4. Dump PlayerGui
-    table.insert(buffer, "\n=== PLAYER GUI ===")
-    scan(PlayerGui, "")
-
-    -- 5. Dump Log Buffer
-    table.insert(buffer, "\n=== DEBUG LOGS ===")
-    for _, line in ipairs(LogBuffer) do
-        table.insert(buffer, line)
-    end
-
-    table.insert(buffer, "--- END GOD DUMP ---")
-    
-    local content = table.concat(buffer, "\n")
-    SaveStringToFile("CaseParadise_GOD_DUMP.txt", content)
-    Log("GOD DUMP COMPLETE!")
+    table.insert(buffer, "--- END WORKSPACE ---")
+    SaveData("CP_Workspace.txt", table.concat(buffer, "\n"))
 end
 
 -- [UI BUILDER]
@@ -358,11 +363,11 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3.11 GOD DUMP"
+Title.Text = "Case Paradise | V3.12 EXPORT TOOLS"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
-Title.TextColor3 = Theme.GodMode -- Red to indicate power
+Title.TextColor3 = Theme.GodMode 
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 18
@@ -583,21 +588,26 @@ CrateScrollFrame.Parent = Tabs.Crates.Frame
 local CrateLayout = Instance.new("UIListLayout"); CrateLayout.Padding = UDim.new(0,5); CrateLayout.Parent = CrateScrollFrame
 
 -- Debug Tab
-CreateSection("Debug", "GOD MODE TOOLS")
+CreateSection("Debug", "EXPORT TOOLS (CHUNKED)")
 
-local GodDumpBtn = Instance.new("TextButton")
-GodDumpBtn.Text = "GOD DUMP (Click Once & Wait)"
-GodDumpBtn.Size = UDim2.new(1, 0, 0, 50)
-GodDumpBtn.BackgroundColor3 = Theme.GodMode
-GodDumpBtn.TextColor3 = Theme.Text
-GodDumpBtn.Font = Enum.Font.GothamBold
-GodDumpBtn.TextSize = 14
-GodDumpBtn.Parent = Tabs.Debug.Frame
-local GdCorner = Instance.new("UICorner"); GdCorner.Parent = GodDumpBtn
-GodDumpBtn.MouseButton1Click:Connect(GodModeDump)
+local function CreateDumpBtn(text, func)
+    local Btn = Instance.new("TextButton")
+    Btn.Text = text
+    Btn.Size = UDim2.new(1, 0, 0, 40)
+    Btn.BackgroundColor3 = Theme.GodMode
+    Btn.TextColor3 = Theme.Text
+    Btn.Font = Enum.Font.GothamBold
+    Btn.Parent = Tabs.Debug.Frame
+    local Corner = Instance.new("UICorner"); Corner.Parent = Btn
+    Btn.MouseButton1Click:Connect(func)
+end
+
+CreateDumpBtn("1. DUMP REMOTES (Fix Script)", DumpRemotes)
+CreateDumpBtn("2. DUMP MODULES (Find Economy)", DumpModules)
+CreateDumpBtn("3. DUMP WORKSPACE", DumpWorkspace)
 
 local TestOpenBtn = Instance.new("TextButton")
-TestOpenBtn.Text = "TEST OPEN SINGLE CASE (LOGS)"
+TestOpenBtn.Text = "TEST OPEN SINGLE CASE"
 TestOpenBtn.Size = UDim2.new(1, 0, 0, 35)
 TestOpenBtn.BackgroundColor3 = Theme.Error
 TestOpenBtn.TextColor3 = Theme.Text
@@ -630,38 +640,5 @@ CurrentTab = Tabs.Main
 Tabs.Main.Btn.TextColor3 = Theme.Accent
 Tabs.Main.Frame.Visible = true
 
-Log("Case Paradise Script V3.11 GOD DUMP Loaded")
-StarterGui:SetCore("SendNotification", {Title="Script Loaded", Text="Go to Debug -> GOD DUMP", Duration=5})
-
--- [LOOPS]
-task.spawn(function()
-    while true do
-        if Config.AutoOpen then
-            if Remotes.Open then
-                pcall(function() Remotes.Open:FireServer(Config.SelectedCase) end)
-            else
-                -- Don't spam warn in loop, UI indicator handles it
-            end
-        end
-        
-        if Config.AutoSell and Remotes.Sell then pcall(function() Remotes.Sell:FireServer() end) end
-        task.wait(1.0) -- Slower loop to prevent rate limit spam during debug
-    end
-end)
-
-task.spawn(function() 
-    while true do
-        if Config.AutoLevelCrates and Remotes.Rewards then
-             pcall(function() Remotes.Rewards:FireServer() end) -- Generic claim
-             for i=1, 9 do pcall(function() Remotes.Rewards:FireServer("Gift"..i) end) end -- Gifts
-        end
-        task.wait(5)
-    end
-end)
-
-task.spawn(function()
-    while true do
-        SelectedLbl.Text = "Selected: "..Config.SelectedCase
-        task.wait(0.5)
-    end
-end)
+Log("Case Paradise Script V3.12 Loaded")
+StarterGui:SetCore("SendNotification", {Title="Tools Ready", Text="Export options split into 3 parts.", Duration=5})
