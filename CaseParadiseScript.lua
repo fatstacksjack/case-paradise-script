@@ -1,6 +1,6 @@
--- Case Paradise Script (Premium Native UI) v3.8
+-- Case Paradise Script (Premium Native UI) v3.9 DEBUG
 -- Author: Antigravity
--- Status: SEARCH BAR + CLIPBOARD + FINDER + DUMP CUSTOM MODULE
+-- Status: DEBUG MODE (Verbose Logs + Status Indicators)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -38,14 +38,22 @@ local Theme = {
 local Remotes = { Open = nil, Sell = nil, Rewards = nil, Generic = {} }
 local KnownCrates = {} 
 local FilteredCrates = {} 
-local LoadedCases = {} -- Stores the actual module data
+local LoadedCases = {} 
 local ItemSearchInput = nil
 local ItemResultsFrame = nil
 local CrateScrollFrame = nil
 local SearchInput = nil
-local ModuleNameInput = nil -- For custom dumping
+local StatusLabels = {} -- For Debug UI
+
+local function UpdateStatus(name, found)
+    if StatusLabels[name] then
+        StatusLabels[name].Text = name .. ": " .. (found and "FOUND" or "MISSING")
+        StatusLabels[name].TextColor3 = found and Theme.Success or Theme.Error
+    end
+end
 
 local function ScanRemotes()
+    print("[DEBUG] Scanning for Remotes...")
     local remoteFolder = ReplicatedStorage:FindFirstChild("Remotes")
     if remoteFolder then
         Remotes.Open = remoteFolder:FindFirstChild("OpenCase")
@@ -58,14 +66,26 @@ local function ScanRemotes()
             end
         end
     else
+        warn("[DEBUG] 'Remotes' folder NOT found in ReplicatedStorage!")
+        -- Fallback scan
         for _, child in pairs(ReplicatedStorage:GetDescendants()) do
              if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
                 local name = child.Name:lower()
-                if (name:find("open") or name:find("case")) and not Remotes.Open then Remotes.Open = child end
-                if name:find("sell") and not Remotes.Sell then Remotes.Sell = child end
+                if (name:find("open") or name:find("case")) and not Remotes.Open then 
+                    Remotes.Open = child 
+                    print("[DEBUG] Found Open Remote: " .. child:GetFullName())
+                end
+                if name:find("sell") and not Remotes.Sell then 
+                    Remotes.Sell = child 
+                    print("[DEBUG] Found Sell Remote: " .. child:GetFullName())
+                end
             end
         end
     end
+    
+    UpdateStatus("OpenCase", Remotes.Open ~= nil)
+    UpdateStatus("Sell", Remotes.Sell ~= nil)
+    UpdateStatus("Rewards", Remotes.Rewards ~= nil)
 end
 
 -- [UPDATE CRATE LIST UI]
@@ -88,7 +108,7 @@ local function UpdateCrateList()
         
         Btn.MouseButton1Click:Connect(function()
             Config.SelectedCase = crate
-            -- Visual feedback
+            print("[DEBUG] Selected Case: " .. crate)
         end)
     end
     CrateScrollFrame.CanvasSize = UDim2.new(0,0,0, #listToUse * 40)
@@ -96,6 +116,7 @@ end
 
 -- [MODULE SCRAPER & DATA LOADER]
 local function ScrapeCrates()
+    print("[DEBUG] Scraping Crates...")
     local foundCrates = {}
     local Success, Module = pcall(function()
         local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
@@ -107,24 +128,19 @@ local function ScrapeCrates()
     end)
     
     if Success and Module and type(Module) == "table" then
-        LoadedCases = Module -- STORE FULL DATA
+        print("[DEBUG] 'Cases' Module Loaded Successfully.")
+        LoadedCases = Module 
         for k, v in pairs(Module) do
             if type(k) == "string" then table.insert(foundCrates, k)
             elseif type(v) == "table" and v.Name then table.insert(foundCrates, v.Name)
             elseif type(v) == "string" then table.insert(foundCrates, v) end
             
-            -- Ensure LoadedCases is indexed by name
             if type(v) == "table" and v.Name then
                 LoadedCases[v.Name] = v
             end
         end
     else
-        local gui = PlayerGui:FindFirstChild("Shop") or PlayerGui
-        for _, v in pairs(gui:GetDescendants()) do
-            if (v:IsA("TextLabel") or v:IsA("TextButton")) and v.Text:lower():find("case") then
-                table.insert(foundCrates, v.Text)
-            end
-        end
+        warn("[DEBUG] Failed to load 'Cases' Module or it's empty.")
     end
 
     local unique = {}
@@ -154,9 +170,7 @@ end
 local function FindItem(itemName)
     if not itemName or itemName == "" then return end
     itemName = itemName:lower()
-    
     local results = {}
-    
     for caseName, data in pairs(LoadedCases) do
         if type(data) == "table" and data.Drops then
             for _, drop in pairs(data.Drops) do
@@ -171,16 +185,13 @@ local function FindItem(itemName)
             end
         end
     end
-    
-    -- Sort by Best Odds (Highest First)
     table.sort(results, function(a,b) return (a.Odds or 0) > (b.Odds or 0) end)
     
-    -- Update UI
     if not ItemResultsFrame then return end
     for _, v in pairs(ItemResultsFrame:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
     
     for i, res in ipairs(results) do
-        if i > 20 then break end -- Limit results
+        if i > 20 then break end 
         local Btn = Instance.new("TextButton")
         local oddsPercent = (res.Odds * 100)
         Btn.Text = string.format("%s\nCase: %s | Odds: %.4f%% | Cost: %s", res.Item, res.Case, oddsPercent, res.Price)
@@ -194,7 +205,6 @@ local function FindItem(itemName)
         
         Btn.MouseButton1Click:Connect(function()
             Config.SelectedCase = res.Case
-            -- Maybe switch tab?
              StarterGui:SetCore("SendNotification", {Title="Case Selected", Text="Switched to " .. res.Case, Duration=3})
         end)
     end
@@ -206,10 +216,7 @@ end
 local function DeepScanExport(moduleNameOverride)
     local targetName = moduleNameOverride or "Cases"
     print("--- STARTING EXPORT: " .. targetName .. " ---")
-    
     local ModuleInstance = nil
-    
-    -- Search for module recursively in ReplicatedStorage.Modules
     local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
     if modulesFolder then
         if modulesFolder:FindFirstChild(targetName) then
@@ -226,7 +233,6 @@ local function DeepScanExport(moduleNameOverride)
     
     if not ModuleInstance then
         warn("Module not found: " .. targetName)
-        StarterGui:SetCore("SendNotification", {Title="Not Found", Text="Could not find module: "..targetName, Duration=5})
         return
     end
 
@@ -234,7 +240,6 @@ local function DeepScanExport(moduleNameOverride)
     
     if not Success then 
         warn("Failed to require module: " .. targetName)
-        StarterGui:SetCore("SendNotification", {Title="Require Failed", Text="Check F9 for error.", Duration=5})
         return 
     end
     
@@ -254,25 +259,14 @@ local function DeepScanExport(moduleNameOverride)
         end
     end
     
-    local success, err = pcall(function()
-        serializeTable(Data, "")
-        table.insert(buffer, "--- END DUMP ---")
-    end)
-    
+    local success, err = pcall(function() serializeTable(Data, "") table.insert(buffer, "--- END DUMP ---") end)
     local fileContent = table.concat(buffer, "\n")
-    
-    local clipboardSuccess, cerr = pcall(function()
-        if setclipboard then
-            setclipboard(fileContent)
-            return true
-        end
-        return false
-    end)
+    local clipboardSuccess, cerr = pcall(function() if setclipboard then setclipboard(fileContent) return true end return false end)
 
     if clipboardSuccess then
         StarterGui:SetCore("SendNotification", {Title="COPIED!", Text="To Clipboard", Duration=5})
     else
-        print(fileContent)
+        print(fileContent) -- Allow user to copy from console if clipboard fails
         StarterGui:SetCore("SendNotification", {Title="Export Failed", Text="Check console (F9).", Duration=5})
     end
 end
@@ -304,7 +298,7 @@ ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 500, 0, 480) -- Slightly taller
+MainFrame.Size = UDim2.new(0, 500, 0, 480) 
 MainFrame.Position = UDim2.new(0.5, -250, 0.5, -240)
 MainFrame.BackgroundColor3 = Theme.Background
 MainFrame.BorderSizePixel = 0
@@ -325,11 +319,11 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3.8 Custom Dump"
+Title.Text = "Case Paradise | V3.9 DEBUG MODE"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
-Title.TextColor3 = Theme.Text
+Title.TextColor3 = Theme.Error -- Red to indicate debug
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 18
@@ -423,10 +417,7 @@ local function CreateToggle(tabName, text, callback)
     Container.BackgroundColor3 = Theme.Sidebar
     Container.BorderSizePixel = 0
     Container.Parent = Tabs[tabName].Frame
-    
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0, 6)
-    Corner.Parent = Container
+    local Corner = Instance.new("UICorner"); Corner.CornerRadius = UDim.new(0, 6); Corner.Parent = Container
     
     local Label = Instance.new("TextLabel")
     Label.Text = text
@@ -482,6 +473,24 @@ CreateToggle("Main", "Auto Open Case", function(v) Config.AutoOpen = v end)
 CreateToggle("Main", "Auto Sell Items", function(v) Config.AutoSell = v end)
 CreateToggle("Main", "Auto Rewards/Gifts", function(v) Config.AutoLevelCrates = v end)
 
+-- Debug Status Indicators
+local function CreateStatusLabel(name)
+    local Lbl = Instance.new("TextLabel")
+    Lbl.Text = name .. ": CHECKING..."
+    Lbl.Size = UDim2.new(1, 0, 0, 20)
+    Lbl.BackgroundTransparency = 1
+    Lbl.TextColor3 = Theme.SubText
+    Lbl.Font = Enum.Font.GothamMedium
+    Lbl.TextSize = 12
+    Lbl.TextXAlignment = Enum.TextXAlignment.Left
+    Lbl.Parent = Tabs.Main.Frame
+    StatusLabels[name] = Lbl
+end
+CreateSection("Main", "Remote Status (Debug)")
+CreateStatusLabel("OpenCase")
+CreateStatusLabel("Sell")
+CreateStatusLabel("Rewards")
+
 -- Finder Tab
 CreateSection("Finder", "Item Finder")
 ItemSearchInput = Instance.new("TextBox")
@@ -495,9 +504,7 @@ ItemSearchInput.Font = Enum.Font.Gotham
 ItemSearchInput.Parent = Tabs.Finder.Frame
 local ISC = Instance.new("UICorner"); ISC.Parent = ItemSearchInput
 
-ItemSearchInput:GetPropertyChangedSignal("Text"):Connect(function()
-    FindItem(ItemSearchInput.Text)
-end)
+ItemSearchInput:GetPropertyChangedSignal("Text"):Connect(function() FindItem(ItemSearchInput.Text) end)
 
 ItemResultsFrame = Instance.new("ScrollingFrame")
 ItemResultsFrame.Size = UDim2.new(1, 0, 0, 200)
@@ -517,7 +524,6 @@ SelectedLbl.TextSize = 14
 SelectedLbl.Parent = Tabs.Crates.Frame
 local SelCorner = Instance.new("UICorner"); SelCorner.Parent = SelectedLbl
 
--- Search Bar
 SearchInput = Instance.new("TextBox")
 SearchInput.PlaceholderText = "Search Case Name..."
 SearchInput.Text = ""
@@ -529,9 +535,7 @@ SearchInput.Font = Enum.Font.Gotham
 SearchInput.Parent = Tabs.Crates.Frame
 local SearchCorner = Instance.new("UICorner"); SearchCorner.Parent = SearchInput
 
-SearchInput:GetPropertyChangedSignal("Text"):Connect(function()
-    FilterList(SearchInput.Text)
-end)
+SearchInput:GetPropertyChangedSignal("Text"):Connect(function() FilterList(SearchInput.Text) end)
 
 CrateScrollFrame = Instance.new("ScrollingFrame")
 CrateScrollFrame.Size = UDim2.new(1, 0, 0, 200)
@@ -563,8 +567,8 @@ ListModsBtn.MouseButton1Click:Connect(ListModules)
 
 -- Custom Dump Section
 CreateSection("Debug", "Dump Custom Module")
-ModuleNameInput = Instance.new("TextBox")
-ModuleNameInput.PlaceholderText = "Module Name (e.g. Prices)"
+local ModuleNameInput = Instance.new("TextBox")
+ModuleNameInput.PlaceholderText = "Module Name"
 ModuleNameInput.Text = "Prices"
 ModuleNameInput.Size = UDim2.new(1, 0, 0, 35)
 ModuleNameInput.BackgroundColor3 = Theme.Search
@@ -581,8 +585,27 @@ DumpCustomBtn.TextColor3 = Theme.Text
 DumpCustomBtn.Font = Enum.Font.GothamBold
 DumpCustomBtn.Parent = Tabs.Debug.Frame
 local DcCorner = Instance.new("UICorner"); DcCorner.Parent = DumpCustomBtn
-DumpCustomBtn.MouseButton1Click:Connect(function()
-    DeepScanExport(ModuleNameInput.Text)
+DumpCustomBtn.MouseButton1Click:Connect(function() DeepScanExport(ModuleNameInput.Text) end)
+
+local TestOpenBtn = Instance.new("TextButton")
+TestOpenBtn.Text = "TEST OPEN SINGLE CASE (LOGS)"
+TestOpenBtn.Size = UDim2.new(1, 0, 0, 35)
+TestOpenBtn.BackgroundColor3 = Theme.Error
+TestOpenBtn.TextColor3 = Theme.Text
+TestOpenBtn.Font = Enum.Font.GothamBold
+TestOpenBtn.Parent = Tabs.Debug.Frame
+local ToCorner = Instance.new("UICorner"); ToCorner.Parent = TestOpenBtn
+
+TestOpenBtn.MouseButton1Click:Connect(function()
+    print("[DEBUG] Test Button Clicked. Selected Case: " .. Config.SelectedCase)
+    if Remotes.Open then
+        print("[DEBUG] Firing Remote: " .. Remotes.Open:GetFullName())
+        local s, e = pcall(function() Remotes.Open:FireServer(Config.SelectedCase) end)
+        if s then print("[DEBUG] FireServer Success (No Error)")
+        else warn("[DEBUG] FireServer Failed: " .. tostring(e)) end
+    else
+        warn("[DEBUG] Cannot Fire: Remote is NIL")
+    end
 end)
 
 -- Sidebar Layout Order
@@ -598,14 +621,21 @@ CurrentTab = Tabs.Main
 Tabs.Main.Btn.TextColor3 = Theme.Accent
 Tabs.Main.Frame.Visible = true
 
-print("Case Paradise Script V3.8 Loaded")
+print("Case Paradise Script V3.9 DEBUG Loaded")
 
 -- [LOOPS]
 task.spawn(function()
     while true do
-        if Config.AutoOpen and Remotes.Open then pcall(function() Remotes.Open:FireServer(Config.SelectedCase) end) end
+        if Config.AutoOpen then
+            if Remotes.Open then
+                pcall(function() Remotes.Open:FireServer(Config.SelectedCase) end)
+            else
+                -- Don't spam warn in loop, UI indicator handles it
+            end
+        end
+        
         if Config.AutoSell and Remotes.Sell then pcall(function() Remotes.Sell:FireServer() end) end
-        task.wait(0.5) 
+        task.wait(1.0) -- Slower loop to prevent rate limit spam during debug
     end
 end)
 
