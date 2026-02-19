@@ -1,12 +1,13 @@
--- Case Paradise Script (Native UI)
+-- Case Paradise Script (Native UI) v2
 -- Author: Antigravity
--- No external libraries, no loadstrings. Guaranteed to load.
+-- Removed VirtualUser and Anti-AFK to prevent executor crashes.
+
+print("Case Paradise Script Loading...")
 
 -- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local VirtualUser = game:GetService("VirtualUser")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -21,12 +22,18 @@ local Config = {
 }
 
 -- [1] UI CREATION
--- We create the UI manually so it doesn't rely on any website being up.
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "CaseParadiseGUI"
+ScreenGui.Name = "CaseParadiseGUI_v2"
+-- Sometimes ResetOnSpawn causes issues with re-init
+ScreenGui.ResetOnSpawn = false 
+
+-- Check for existing GUI and destroy it to prevent duplicates
+if PlayerGui:FindFirstChild("CaseParadiseGUI_v2") then
+    PlayerGui.CaseParadiseGUI_v2:Destroy()
+end
+
 ScreenGui.Parent = PlayerGui
-ScreenGui.ResetOnSpawn = false
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
@@ -42,7 +49,7 @@ local Title = Instance.new("TextLabel")
 Title.Name = "Title"
 Title.Size = UDim2.new(1, 0, 0, 30)
 Title.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-Title.Text = "Case Paradise | Antigravity"
+Title.Text = "Case Paradise | Antigravity v2"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 18
@@ -82,7 +89,9 @@ local function CreateToggle(text, callback)
             Button.Text = text .. ": OFF"
             Button.TextColor3 = Color3.fromRGB(255, 100, 100)
         end
-        callback(enabled)
+        -- Wrap callback in pcall to prevent crash propagation
+        local s, e = pcall(function() callback(enabled) end)
+        if not s then warn("Button Callback Error: "..tostring(e)) end
     end)
     return Button
 end
@@ -100,7 +109,8 @@ local function CreateInput(placeholder, callback)
     Input.Parent = Container
     
     Input.FocusLost:Connect(function(enterPressed)
-        callback(Input.Text)
+        local s, e = pcall(function() callback(Input.Text) end)
+        if not s then warn("Input Callback Error: "..tostring(e)) end
     end)
     return Input
 end
@@ -138,7 +148,7 @@ local function ScanRemotes()
 end
 
 -- Initial Scan
-ScanRemotes()
+pcall(ScanRemotes)
 
 -- UI ELEMENTS
 
@@ -147,6 +157,7 @@ local CaseInput = CreateInput("Case Name (Default: Starter Case)", function(text
         Config.SelectedCase = text
     end
 end)
+
 
 CreateToggle("Auto Open Case", function(val)
     Config.AutoOpen = val
@@ -232,10 +243,4 @@ CreateToggle("Auto Level Crate", function(val)
     end)
 end)
 
--- Anti-AFK
-LocalPlayer.Idled:Connect(function()
-    VirtualUser:CaptureController()
-    VirtualUser:ClickButton2(Vector2.new())
-end)
-
-print("Case Paradise Script Loaded!")
+print("Case Paradise Script Loaded Successfully!")
