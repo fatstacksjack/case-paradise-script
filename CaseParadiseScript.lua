@@ -1,12 +1,13 @@
--- Case Paradise Script (Premium Native UI) v3.4
+-- Case Paradise Script (Premium Native UI) v3.5
 -- Author: Antigravity
--- Status: SEARCH BAR ADDED. Deep Module Scan for efficiency.
+-- Status: SEARCH BAR + FILE EXPORT (writefile)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -35,8 +36,8 @@ local Theme = {
 
 -- [REMOTES & DATA]
 local Remotes = { Open = nil, Sell = nil, Rewards = nil, Generic = {} }
-local KnownCrates = {} -- Full list
-local FilteredCrates = {} -- Search results
+local KnownCrates = {} 
+local FilteredCrates = {} 
 local CrateScrollFrame = nil
 local SearchInput = nil
 
@@ -53,7 +54,6 @@ local function ScanRemotes()
             end
         end
     else
-        -- Fallback scan
         for _, child in pairs(ReplicatedStorage:GetDescendants()) do
              if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
                 local name = child.Name:lower()
@@ -67,16 +67,10 @@ end
 -- [UPDATE CRATE LIST UI]
 local function UpdateCrateList()
     if not CrateScrollFrame then return end
+    for _, v in pairs(CrateScrollFrame:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
     
-    -- Clear existing buttons
-    for _, v in pairs(CrateScrollFrame:GetChildren()) do 
-        if v:IsA("TextButton") then v:Destroy() end 
-    end
-    
-    -- Determine which list to use
     local listToUse = (SearchInput and SearchInput.Text ~= "") and FilteredCrates or KnownCrates
     
-    -- Create Buttons
     for _, crate in ipairs(listToUse) do
         local Btn = Instance.new("TextButton")
         Btn.Text = crate
@@ -86,30 +80,24 @@ local function UpdateCrateList()
         Btn.Font = Enum.Font.GothamMedium
         Btn.TextSize = 13
         Btn.Parent = CrateScrollFrame
-        
         local CCorner = Instance.new("UICorner"); CCorner.Parent = Btn
         
         Btn.MouseButton1Click:Connect(function()
             Config.SelectedCase = crate
-            -- Visual feedback on selection if needed
+            -- Visual feedback
         end)
     end
-    
-    -- Update Canvas Size
     CrateScrollFrame.CanvasSize = UDim2.new(0,0,0, #listToUse * 40)
 end
 
 -- [MODULE SCRAPER]
 local function ScrapeCrates()
     local foundCrates = {}
-    
     local Success, Module = pcall(function()
         local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
         if modulesFolder then
             local casesModule = modulesFolder:FindFirstChild("Cases")
-            if casesModule and casesModule:IsA("ModuleScript") then
-                return require(casesModule)
-            end
+            if casesModule and casesModule:IsA("ModuleScript") then return require(casesModule) end
         end
         return nil
     end)
@@ -121,7 +109,6 @@ local function ScrapeCrates()
             elseif type(v) == "string" then table.insert(foundCrates, v) end
         end
     else
-        -- GUI Fallback
         local gui = PlayerGui:FindFirstChild("Shop") or PlayerGui
         for _, v in pairs(gui:GetDescendants()) do
             if (v:IsA("TextLabel") or v:IsA("TextButton")) and v.Text:lower():find("case") then
@@ -141,46 +128,74 @@ local function ScrapeCrates()
         end
     end
     table.sort(KnownCrates)
-    
     UpdateCrateList()
 end
 
--- [SEARCH LOGIC]
 local function FilterList(text)
     FilteredCrates = {}
     local lowerText = text:lower()
     for _, crate in ipairs(KnownCrates) do
-        if crate:lower():find(lowerText) then
-            table.insert(FilteredCrates, crate)
-        end
+        if crate:lower():find(lowerText) then table.insert(FilteredCrates, crate) end
     end
     UpdateCrateList()
 end
 
--- [DEEP MODULE SCAN]
-local function DeepScan()
-    print("\n--- DEEP MODULE SCAN START ---")
+-- [DEEP MODULE SCAN & EXPORT]
+local function DeepScanExport()
+    print("--- STARTING EXPORT ---")
     local Success, Cases = pcall(function() return require(ReplicatedStorage.Modules.Cases) end)
+    
     if not Success then 
-        warn("Could not require Modules.Cases!") 
+        warn("Failed to require Cases module.")
+        StarterGui:SetCore("SendNotification", {Title="Export Failed", Text="Could not require Cases module.", Duration=5})
         return 
     end
     
-    -- Recursive print
-    local function printTable(t, indent)
+    local buffer = {}
+    table.insert(buffer, "--- CASE PARADISE MODULE DUMP ---")
+    table.insert(buffer, "Time: " .. os.date("%c"))
+    table.insert(buffer, "")
+    
+    local function serializeTable(t, indent)
         for k,v in pairs(t) do
+            local keyStr = tostring(k)
+            local valStr = tostring(v)
             if type(v) == "table" then
-                print(indent .. "[" .. tostring(k) .. "] (Table):")
-                printTable(v, indent .. "  ")
+                table.insert(buffer, indent .. "[" .. keyStr .. "] (Table):")
+                serializeTable(v, indent .. "  ")
             else
-                print(indent .. "[" .. tostring(k) .. "] = " .. tostring(v))
+                table.insert(buffer, indent .. "[" .. keyStr .. "] = " .. valStr)
             end
         end
     end
     
-    print("Module: Cases")
-    printTable(Cases, "  ")
-    print("--- DEEP MODULE SCAN END ---\n")
+    table.insert(buffer, "Module: Cases")
+    serializeTable(Cases, "")
+    table.insert(buffer, "--- END DUMP ---")
+    
+    local fileContent = table.concat(buffer, "\n")
+    
+    -- Try to write file
+    local fileSuccess, err = pcall(function()
+        writefile("CaseParadise_Dump.txt", fileContent)
+    end)
+    
+    if fileSuccess then
+        print("DUMP SAVED TO WORKSPACE FOLDER: CaseParadise_Dump.txt")
+        StarterGui:SetCore("SendNotification", {
+            Title = "Use 'Export Success'!",
+            Text = "Saved to workspace/CaseParadise_Dump.txt",
+            Duration = 5
+        })
+    else
+        warn("WRITEFILE FAILED: " .. tostring(err))
+        print(fileContent) -- Fallback to console print
+        StarterGui:SetCore("SendNotification", {
+            Title = "Export Failed",
+            Text = "Check console (F9) for output.",
+            Duration = 5
+        })
+    end
 end
 
 -- [UI BUILDER]
@@ -214,7 +229,7 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3.4 Search Update"
+Title.Text = "Case Paradise | V3.5 File Export"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
@@ -398,7 +413,6 @@ SearchInput:GetPropertyChangedSignal("Text"):Connect(function()
     FilterList(SearchInput.Text)
 end)
 
--- Crate List Container
 CrateScrollFrame = Instance.new("ScrollingFrame")
 CrateScrollFrame.Size = UDim2.new(1, 0, 0, 200)
 CrateScrollFrame.BackgroundTransparency = 1
@@ -408,14 +422,14 @@ local CrateLayout = Instance.new("UIListLayout"); CrateLayout.Padding = UDim.new
 -- Debug Tab
 CreateSection("Debug", "Power Tools")
 local DeepScanBtn = Instance.new("TextButton")
-DeepScanBtn.Text = "DEEP MODULE SCAN (Dump to F9)"
+DeepScanBtn.Text = "EXPORT MODULE DATA (writefile)"
 DeepScanBtn.Size = UDim2.new(1, 0, 0, 40)
 DeepScanBtn.BackgroundColor3 = Theme.Accent
 DeepScanBtn.TextColor3 = Theme.Text
 DeepScanBtn.Font = Enum.Font.GothamBold
 DeepScanBtn.Parent = Tabs.Debug.Frame
 local DsCorner = Instance.new("UICorner"); DsCorner.Parent = DeepScanBtn
-DeepScanBtn.MouseButton1Click:Connect(DeepScan)
+DeepScanBtn.MouseButton1Click:Connect(DeepScanExport)
 
 local RefreshBtn2 = Instance.new("TextButton")
 RefreshBtn2.Text = "Refresh Crate List"
@@ -440,10 +454,9 @@ CurrentTab = Tabs.Main
 Tabs.Main.Btn.TextColor3 = Theme.Accent
 Tabs.Main.Frame.Visible = true
 
-print("Case Paradise Script V3.4 Loaded")
+print("Case Paradise Script V3.5 Loaded")
 
--- [AUTOMATION LOOPS]
--- Optimized loop: Checks if remotes exist ONCE per cycle instead of per toggle check
+-- [LOOPS]
 task.spawn(function()
     while true do
         if Config.AutoOpen and Remotes.Open then pcall(function() Remotes.Open:FireServer(Config.SelectedCase) end) end
