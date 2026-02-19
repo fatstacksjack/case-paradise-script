@@ -1,7 +1,6 @@
--- Case Paradise Script (Premium Native UI) v3.2
+-- Case Paradise Script (Premium Native UI) v3.3
 -- Author: Antigravity
--- Status: MODULE SCRAPER + HARDCODED REMOTES.
--- Thanks for the screenshots! Now I know exactly where to look.
+-- Status: UI Overlap Fixed. Permanent Link Ready.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,7 +23,7 @@ local Config = {
 local Theme = {
     Background = Color3.fromRGB(25, 25, 30),
     Sidebar = Color3.fromRGB(35, 35, 40),
-    Accent = Color3.fromRGB(255, 100, 0), -- Updating to Orange to look fresh
+    Accent = Color3.fromRGB(255, 140, 0), -- Updated to cleaner Orange
     Text = Color3.fromRGB(240, 240, 240),
     SubText = Color3.fromRGB(150, 150, 150),
     Success = Color3.fromRGB(100, 255, 100),
@@ -121,8 +120,8 @@ local function ScrapeCrates()
     end
     
     for _, name in ipairs(foundCrates) do
-        -- Filter out garbage names
-        if type(name) == "string" and #name > 3 and #name < 30 and not unique[name] then
+        -- Filter out garbage names and duplicate names
+        if type(name) == "string" and #name > 2 and #name < 30 and not unique[name] then
             unique[name] = true
             table.insert(KnownCrates, name)
         end
@@ -183,7 +182,7 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3.2 Module Scanner"
+Title.Text = "Case Paradise | V3.3 Fixed UI"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
@@ -432,11 +431,12 @@ Layout.SortOrder = Enum.SortOrder.LayoutOrder
 pcall(ScanRemotes)
 pcall(ScrapeCrates)
 
--- Select First Tab
+-- Select First Tab CORRECTLY
+CurrentTab = Tabs.Main -- INITIALIZE CURRENT TAB. THIS FIXES THE OVERLAP BUG.
 Tabs.Main.Btn.TextColor3 = Theme.Accent
 Tabs.Main.Frame.Visible = true
 
-print("Case Paradise Script V3.2 Loaded")
+print("Case Paradise Script V3.3 Loaded")
 
 -- [AUTOMATION LOOPS]
 task.spawn(function()
@@ -467,9 +467,6 @@ task.spawn(function()
              end
              
              -- Try claiming Gifts 1-9 (from screenshot)
-             -- Assuming OpenCase or UpdateRewards handles them?
-             -- Usually "Gifts" are clicked. 
-             -- We can try to FireServer("Gift1") etc on the Rewards remote
              if Remotes.Rewards then
                 for i=1, 9 do
                      pcall(function() Remotes.Rewards:FireServer("Gift"..i) end)
