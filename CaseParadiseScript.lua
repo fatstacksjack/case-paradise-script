@@ -1,6 +1,6 @@
--- Case Paradise Script (Premium Native UI) v3.9 DEBUG
+-- Case Paradise Script (Premium Native UI) v3.11 GOD DUMP
 -- Author: Antigravity
--- Status: DEBUG MODE (Verbose Logs + Status Indicators)
+-- Status: GOD MODE DUMP (Full System Scan to File)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,8 +8,22 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- [LOGGING SYSTEM]
+local LogBuffer = {}
+local function Log(msg)
+    local timestamp = os.date("%H:%M:%S")
+    local formatted = string.format("[%s] %s", timestamp, tostring(msg))
+    table.insert(LogBuffer, formatted)
+    print(formatted)
+    if #LogBuffer > 2000 then table.remove(LogBuffer, 1) end
+end
+
+Log("Script V3.11 GOD DUMP Initializing...")
 
 -- [CONFIG]
 local Config = {
@@ -31,7 +45,8 @@ local Theme = {
     Error = Color3.fromRGB(255, 100, 100),
     ToggleOff = Color3.fromRGB(50, 50, 55),
     ToggleOn = Color3.fromRGB(0, 200, 100),
-    Search = Color3.fromRGB(40, 40, 45)
+    Search = Color3.fromRGB(40, 40, 45),
+    GodMode = Color3.fromRGB(255, 50, 50) -- RED for God Mode
 }
 
 -- [REMOTES & DATA]
@@ -43,7 +58,7 @@ local ItemSearchInput = nil
 local ItemResultsFrame = nil
 local CrateScrollFrame = nil
 local SearchInput = nil
-local StatusLabels = {} -- For Debug UI
+local StatusLabels = {} 
 
 local function UpdateStatus(name, found)
     if StatusLabels[name] then
@@ -53,7 +68,7 @@ local function UpdateStatus(name, found)
 end
 
 local function ScanRemotes()
-    print("[DEBUG] Scanning for Remotes...")
+    Log("Scanning for Remotes...")
     local remoteFolder = ReplicatedStorage:FindFirstChild("Remotes")
     if remoteFolder then
         Remotes.Open = remoteFolder:FindFirstChild("OpenCase")
@@ -66,18 +81,18 @@ local function ScanRemotes()
             end
         end
     else
-        warn("[DEBUG] 'Remotes' folder NOT found in ReplicatedStorage!")
+        Log("WARN: 'Remotes' folder NOT found in ReplicatedStorage!")
         -- Fallback scan
         for _, child in pairs(ReplicatedStorage:GetDescendants()) do
              if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
                 local name = child.Name:lower()
                 if (name:find("open") or name:find("case")) and not Remotes.Open then 
                     Remotes.Open = child 
-                    print("[DEBUG] Found Open Remote: " .. child:GetFullName())
+                    Log("Found Open Remote via Scan: " .. child:GetFullName())
                 end
                 if name:find("sell") and not Remotes.Sell then 
                     Remotes.Sell = child 
-                    print("[DEBUG] Found Sell Remote: " .. child:GetFullName())
+                    Log("Found Sell Remote via Scan: " .. child:GetFullName())
                 end
             end
         end
@@ -108,7 +123,7 @@ local function UpdateCrateList()
         
         Btn.MouseButton1Click:Connect(function()
             Config.SelectedCase = crate
-            print("[DEBUG] Selected Case: " .. crate)
+            Log("Selected Case: " .. crate)
         end)
     end
     CrateScrollFrame.CanvasSize = UDim2.new(0,0,0, #listToUse * 40)
@@ -116,7 +131,7 @@ end
 
 -- [MODULE SCRAPER & DATA LOADER]
 local function ScrapeCrates()
-    print("[DEBUG] Scraping Crates...")
+    Log("Scraping Crates...")
     local foundCrates = {}
     local Success, Module = pcall(function()
         local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
@@ -128,7 +143,7 @@ local function ScrapeCrates()
     end)
     
     if Success and Module and type(Module) == "table" then
-        print("[DEBUG] 'Cases' Module Loaded Successfully.")
+        Log("'Cases' Module Loaded Successfully.")
         LoadedCases = Module 
         for k, v in pairs(Module) do
             if type(k) == "string" then table.insert(foundCrates, k)
@@ -140,7 +155,7 @@ local function ScrapeCrates()
             end
         end
     else
-        warn("[DEBUG] Failed to load 'Cases' Module or it's empty.")
+        Log("WARN: Failed to load 'Cases' Module or it's empty.")
     end
 
     local unique = {}
@@ -211,81 +226,105 @@ local function FindItem(itemName)
     ItemResultsFrame.CanvasSize = UDim2.new(0,0,0, #results * 55)
 end
 
-
--- [DEEP MODULE SCAN & EXPORT]
-local function DeepScanExport(moduleNameOverride)
-    local targetName = moduleNameOverride or "Cases"
-    print("--- STARTING EXPORT: " .. targetName .. " ---")
-    local ModuleInstance = nil
-    local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
-    if modulesFolder then
-        if modulesFolder:FindFirstChild(targetName) then
-            ModuleInstance = modulesFolder:FindFirstChild(targetName)
-        else
-            for _, v in pairs(modulesFolder:GetDescendants()) do
-                if v.Name == targetName and v:IsA("ModuleScript") then
-                    ModuleInstance = v
-                    break
-                end
-            end
+-- [FILE EXPORT FUNCTIONS]
+local function SaveStringToFile(fileName, content)
+    Log("Attempting to save file: " .. fileName)
+    local s, err = pcall(function()
+        if writefile then
+            writefile(fileName, content)
+            return true
         end
-    end
+        return false
+    end)
     
-    if not ModuleInstance then
-        warn("Module not found: " .. targetName)
-        return
+    if s then
+        Log("File Saved Successfully: " .. fileName)
+        StarterGui:SetCore("SendNotification", {Title="FILE SAVED!", Text="Check Workspace Folder: "..fileName, Duration=5})
+    else
+        Log("ERROR: File Save Failed: " .. tostring(err))
+        StarterGui:SetCore("SendNotification", {Title="Save Failed", Text="Your executor might not support writefile.", Duration=5})
     end
+end
 
-    local Success, Data = pcall(function() return require(ModuleInstance) end)
-    
-    if not Success then 
-        warn("Failed to require module: " .. targetName)
-        return 
-    end
-    
+-- [GOD MODE DUMP]
+local function GodModeDump()
+    Log("STARTING GOD MODE DUMP...")
     local buffer = {}
-    table.insert(buffer, "--- MODULE DUMP: " .. targetName .. " ---")
+    table.insert(buffer, "--- CASE PARADISE GOD DUMP V3.11 ---")
+    table.insert(buffer, "Date: " .. os.date("%c"))
     
+    -- Helper: Serialize Table
     local function serializeTable(t, indent)
         for k,v in pairs(t) do
             local keyStr = tostring(k)
             local valStr = tostring(v)
             if type(v) == "table" then
                 table.insert(buffer, indent .. "[" .. keyStr .. "] (Table):")
-                serializeTable(v, indent .. "  ")
+                if indent:len() < 20 then -- Prevent infinite recursion
+                     serializeTable(v, indent .. "  ")
+                else
+                     table.insert(buffer, indent .. "  (Max Depth Reached)")
+                end
             else
                 table.insert(buffer, indent .. "[" .. keyStr .. "] = " .. valStr)
             end
         end
     end
-    
-    local success, err = pcall(function() serializeTable(Data, "") table.insert(buffer, "--- END DUMP ---") end)
-    local fileContent = table.concat(buffer, "\n")
-    local clipboardSuccess, cerr = pcall(function() if setclipboard then setclipboard(fileContent) return true end return false end)
 
-    if clipboardSuccess then
-        StarterGui:SetCore("SendNotification", {Title="COPIED!", Text="To Clipboard", Duration=5})
-    else
-        print(fileContent) -- Allow user to copy from console if clipboard fails
-        StarterGui:SetCore("SendNotification", {Title="Export Failed", Text="Check console (F9).", Duration=5})
+    -- 1. Dump ReplicatedStorage (Structure)
+    table.insert(buffer, "\n=== REPLICATED STORAGE STRUCTURE ===")
+    local function scan(obj, indent)
+        pcall(function()
+            table.insert(buffer, indent .. obj.Name .. " [" .. obj.ClassName .. "]")
+            for _, child in pairs(obj:GetChildren()) do
+                scan(child, indent .. "  ")
+            end
+        end)
     end
-end
-
--- [LIST MODULES DEBUG]
-local function ListModules()
-    print("\n--- REPLICATED STORAGE MODULES LIST ---")
-    local modules = ReplicatedStorage:FindFirstChild("Modules")
-    if modules then
-        for _, v in pairs(modules:GetDescendants()) do
-            if v:IsA("ModuleScript") then
-                print("Module Found: " .. v.Name .. " | Parent: " .. v.Parent.Name)
+    scan(ReplicatedStorage, "")
+    
+    -- 2. Dump Modules Content
+    table.insert(buffer, "\n=== MODULES CONTENT ===")
+    local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
+    if modulesFolder then
+        for _, mod in pairs(modulesFolder:GetDescendants()) do
+            if mod:IsA("ModuleScript") then
+                table.insert(buffer, "\n-- Module: " .. mod.Name .. " (" .. mod:GetFullName() .. ") --")
+                local s, data = pcall(function() return require(mod) end)
+                if s and type(data) == "table" then
+                    serializeTable(data, "  ")
+                elseif s then
+                    table.insert(buffer, "  Returned: " .. tostring(data))
+                else
+                    table.insert(buffer, "  Require Failed: " .. tostring(data))
+                end
             end
         end
-    else
-        print("No 'Modules' folder found in ReplicatedStorage.")
     end
-    print("--- END LIST ---\n")
-    StarterGui:SetCore("SendNotification", {Title="Modules Listed", Text="Check F9 Console", Duration=5})
+    
+    -- 3. Dump Workspace (Interactables)
+    table.insert(buffer, "\n=== WORKSPACE INTERACTABLES ===")
+    for _, v in pairs(Workspace:GetDescendants()) do
+        if v:IsA("ProximityPrompt") or v:IsA("ClickDetector") or v:IsA("TouchTransmitter") then
+            table.insert(buffer, "Interactable: " .. v.Name .. " | Parent: " .. v.Parent:GetFullName() .. " | Class: " .. v.ClassName)
+        end
+    end
+    
+    -- 4. Dump PlayerGui
+    table.insert(buffer, "\n=== PLAYER GUI ===")
+    scan(PlayerGui, "")
+
+    -- 5. Dump Log Buffer
+    table.insert(buffer, "\n=== DEBUG LOGS ===")
+    for _, line in ipairs(LogBuffer) do
+        table.insert(buffer, line)
+    end
+
+    table.insert(buffer, "--- END GOD DUMP ---")
+    
+    local content = table.concat(buffer, "\n")
+    SaveStringToFile("CaseParadise_GOD_DUMP.txt", content)
+    Log("GOD DUMP COMPLETE!")
 end
 
 -- [UI BUILDER]
@@ -298,8 +337,8 @@ ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 500, 0, 480) 
-MainFrame.Position = UDim2.new(0.5, -250, 0.5, -240)
+MainFrame.Size = UDim2.new(0, 500, 0, 500) 
+MainFrame.Position = UDim2.new(0.5, -250, 0.5, -250)
 MainFrame.BackgroundColor3 = Theme.Background
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = true
@@ -319,11 +358,11 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3.9 DEBUG MODE"
+Title.Text = "Case Paradise | V3.11 GOD DUMP"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
-Title.TextColor3 = Theme.Error -- Red to indicate debug
+Title.TextColor3 = Theme.GodMode -- Red to indicate power
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 18
@@ -544,48 +583,18 @@ CrateScrollFrame.Parent = Tabs.Crates.Frame
 local CrateLayout = Instance.new("UIListLayout"); CrateLayout.Padding = UDim.new(0,5); CrateLayout.Parent = CrateScrollFrame
 
 -- Debug Tab
-CreateSection("Debug", "Power Tools")
-local DeepScanBtn = Instance.new("TextButton")
-DeepScanBtn.Text = "COPY 'Cases' MODULE"
-DeepScanBtn.Size = UDim2.new(1, 0, 0, 35)
-DeepScanBtn.BackgroundColor3 = Theme.Accent
-DeepScanBtn.TextColor3 = Theme.Text
-DeepScanBtn.Font = Enum.Font.GothamBold
-DeepScanBtn.Parent = Tabs.Debug.Frame
-local DsCorner = Instance.new("UICorner"); DsCorner.Parent = DeepScanBtn
-DeepScanBtn.MouseButton1Click:Connect(function() DeepScanExport("Cases") end)
+CreateSection("Debug", "GOD MODE TOOLS")
 
-local ListModsBtn = Instance.new("TextButton")
-ListModsBtn.Text = "LIST ALL MODULES (F9)"
-ListModsBtn.Size = UDim2.new(1, 0, 0, 35)
-ListModsBtn.BackgroundColor3 = Theme.Sidebar
-ListModsBtn.TextColor3 = Theme.SubText
-ListModsBtn.Font = Enum.Font.GothamBold
-ListModsBtn.Parent = Tabs.Debug.Frame
-local LmCorner = Instance.new("UICorner"); LmCorner.Parent = ListModsBtn
-ListModsBtn.MouseButton1Click:Connect(ListModules)
-
--- Custom Dump Section
-CreateSection("Debug", "Dump Custom Module")
-local ModuleNameInput = Instance.new("TextBox")
-ModuleNameInput.PlaceholderText = "Module Name"
-ModuleNameInput.Text = "Prices"
-ModuleNameInput.Size = UDim2.new(1, 0, 0, 35)
-ModuleNameInput.BackgroundColor3 = Theme.Search
-ModuleNameInput.TextColor3 = Theme.Text
-ModuleNameInput.Font = Enum.Font.Gotham
-ModuleNameInput.Parent = Tabs.Debug.Frame
-local MnCorner = Instance.new("UICorner"); MnCorner.Parent = ModuleNameInput
-
-local DumpCustomBtn = Instance.new("TextButton")
-DumpCustomBtn.Text = "COPY CUSTOM MODULE"
-DumpCustomBtn.Size = UDim2.new(1, 0, 0, 35)
-DumpCustomBtn.BackgroundColor3 = Theme.Accent
-DumpCustomBtn.TextColor3 = Theme.Text
-DumpCustomBtn.Font = Enum.Font.GothamBold
-DumpCustomBtn.Parent = Tabs.Debug.Frame
-local DcCorner = Instance.new("UICorner"); DcCorner.Parent = DumpCustomBtn
-DumpCustomBtn.MouseButton1Click:Connect(function() DeepScanExport(ModuleNameInput.Text) end)
+local GodDumpBtn = Instance.new("TextButton")
+GodDumpBtn.Text = "GOD DUMP (Click Once & Wait)"
+GodDumpBtn.Size = UDim2.new(1, 0, 0, 50)
+GodDumpBtn.BackgroundColor3 = Theme.GodMode
+GodDumpBtn.TextColor3 = Theme.Text
+GodDumpBtn.Font = Enum.Font.GothamBold
+GodDumpBtn.TextSize = 14
+GodDumpBtn.Parent = Tabs.Debug.Frame
+local GdCorner = Instance.new("UICorner"); GdCorner.Parent = GodDumpBtn
+GodDumpBtn.MouseButton1Click:Connect(GodModeDump)
 
 local TestOpenBtn = Instance.new("TextButton")
 TestOpenBtn.Text = "TEST OPEN SINGLE CASE (LOGS)"
@@ -597,14 +606,14 @@ TestOpenBtn.Parent = Tabs.Debug.Frame
 local ToCorner = Instance.new("UICorner"); ToCorner.Parent = TestOpenBtn
 
 TestOpenBtn.MouseButton1Click:Connect(function()
-    print("[DEBUG] Test Button Clicked. Selected Case: " .. Config.SelectedCase)
+    Log("Test Button Clicked. Selected Case: " .. Config.SelectedCase)
     if Remotes.Open then
-        print("[DEBUG] Firing Remote: " .. Remotes.Open:GetFullName())
+        Log("Firing Remote: " .. Remotes.Open:GetFullName())
         local s, e = pcall(function() Remotes.Open:FireServer(Config.SelectedCase) end)
-        if s then print("[DEBUG] FireServer Success (No Error)")
-        else warn("[DEBUG] FireServer Failed: " .. tostring(e)) end
+        if s then Log("FireServer Success (No Error)")
+        else Log("FireServer Failed: " .. tostring(e)) end
     else
-        warn("[DEBUG] Cannot Fire: Remote is NIL")
+        Log("Cannot Fire: Remote is NIL")
     end
 end)
 
@@ -621,7 +630,8 @@ CurrentTab = Tabs.Main
 Tabs.Main.Btn.TextColor3 = Theme.Accent
 Tabs.Main.Frame.Visible = true
 
-print("Case Paradise Script V3.9 DEBUG Loaded")
+Log("Case Paradise Script V3.11 GOD DUMP Loaded")
+StarterGui:SetCore("SendNotification", {Title="Script Loaded", Text="Go to Debug -> GOD DUMP", Duration=5})
 
 -- [LOOPS]
 task.spawn(function()
