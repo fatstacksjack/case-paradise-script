@@ -1,9 +1,10 @@
--- Case Paradise Script - EMERGENCY VERSION
+-- Case Paradise Script (Native UI) v2
 -- Author: Antigravity
--- Ultra-simple. No scanning logic on startup. Manual config only.
+-- Removed VirtualUser and Anti-AFK to prevent executor crashes.
 
-print("--- STARTED EXECUTION ---")
+print("Case Paradise Script Loading...")
 
+-- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -11,22 +12,35 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- 1. CLEANUP OLD GUI
-if PlayerGui:FindFirstChild("SimpleGUI") then
-    PlayerGui.SimpleGUI:Destroy()
+-- Configuration
+local Config = {
+    AutoOpen = false,
+    AutoSell = false,
+    AutoQuests = false,
+    AutoLevelCrates = false,
+    SelectedCase = "Starter Case"
+}
+
+-- [1] UI CREATION
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "CaseParadiseGUI_v2"
+-- Sometimes ResetOnSpawn causes issues with re-init
+ScreenGui.ResetOnSpawn = false 
+
+-- Check for existing GUI and destroy it to prevent duplicates
+if PlayerGui:FindFirstChild("CaseParadiseGUI_v2") then
+    PlayerGui.CaseParadiseGUI_v2:Destroy()
 end
 
--- 2. CREATE ULTRA-SIMPLE GUI
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "SimpleGUI"
-ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 250, 0, 300)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -150)
-MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.Size = UDim2.new(0, 300, 0, 350)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -175)
+MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
@@ -34,137 +48,199 @@ MainFrame.Parent = ScreenGui
 local Title = Instance.new("TextLabel")
 Title.Name = "Title"
 Title.Size = UDim2.new(1, 0, 0, 30)
-Title.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-Title.Text = "EMERGENCY SCRIPT"
-Title.TextColor3 = Color3.fromRGB(255, 0, 0)
-Title.TextSize = 20
+Title.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+Title.Text = "Case Paradise | Antigravity v2"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 18
 Title.Parent = MainFrame
 
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Name = "Status"
-StatusLabel.Size = UDim2.new(1, 0, 0, 20)
-StatusLabel.Position = UDim2.new(0, 0, 1, -20)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Waiting..."
-StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
-StatusLabel.Parent = MainFrame
+local Container = Instance.new("ScrollingFrame")
+Container.Name = "Container"
+Container.Size = UDim2.new(1, -10, 1, -40)
+Container.Position = UDim2.new(0, 5, 0, 35)
+Container.BackgroundTransparency = 1
+Container.ScrollBarThickness = 5
+Container.Parent = MainFrame
 
-local AutoOpen = false
-local AutoSell = false
-local AutoLevel = false
-local CaseName = "Starter Case"
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Parent = Container
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 5)
 
--- 3. LOGIC (NO FANCY SCANNING)
+-- Helper to create Toggle Buttons
+local function CreateToggle(text, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(1, 0, 0, 35)
+    Button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    Button.Text = text .. ": OFF"
+    Button.TextColor3 = Color3.fromRGB(255, 100, 100)
+    Button.Font = Enum.Font.SourceSans
+    Button.TextSize = 16
+    Button.Parent = Container
 
-local function GetRemote(name)
-    -- Try direct lookup first (fastest)
-    local r = ReplicatedStorage:FindFirstChild(name)
-    if r then return r end
-    
-    -- Try recursive if direct fails
-    for _, v in pairs(ReplicatedStorage:GetDescendants()) do
-        if v.Name == name then return v end
-    end
-    return nil
-end
-
--- Buttons
-local function CreateBtn(text, pos, callback)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.9, 0, 0, 40)
-    btn.Position = UDim2.new(0.05, 0, 0, pos)
-    btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    btn.Text = text .. " [OFF]"
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Parent = MainFrame
-    
-    local on = false
-    btn.MouseButton1Click:Connect(function()
-        on = not on
-        if on then
-            btn.Text = text .. " [ON]"
-            btn.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+    local enabled = false
+    Button.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        if enabled then
+            Button.Text = text .. ": ON"
+            Button.TextColor3 = Color3.fromRGB(100, 255, 100)
         else
-             btn.Text = text .. " [OFF]"
-             btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            Button.Text = text .. ": OFF"
+            Button.TextColor3 = Color3.fromRGB(255, 100, 100)
         end
-        callback(on)
+        -- Wrap callback in pcall to prevent crash propagation
+        local s, e = pcall(function() callback(enabled) end)
+        if not s then warn("Button Callback Error: "..tostring(e)) end
     end)
+    return Button
 end
 
--- Input
-local Input = Instance.new("TextBox")
-Input.Size = UDim2.new(0.9, 0, 0, 30)
-Input.Position = UDim2.new(0.05, 0, 0, 40)
-Input.Text = "Starter Case"
-Input.PlaceholderText = "Case Name"
-Input.Parent = MainFrame
-Input.FocusLost:Connect(function()
-    CaseName = Input.Text
-    print("Selected Case:", CaseName)
-end)
+-- Helper to create Text Inputs
+local function CreateInput(placeholder, callback)
+    local Input = Instance.new("TextBox")
+    Input.Size = UDim2.new(1, 0, 0, 35)
+    Input.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    Input.Text = ""
+    Input.PlaceholderText = placeholder
+    Input.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Input.Font = Enum.Font.SourceSans
+    Input.TextSize = 16
+    Input.Parent = Container
+    
+    Input.FocusLost:Connect(function(enterPressed)
+        local s, e = pcall(function() callback(Input.Text) end)
+        if not s then warn("Input Callback Error: "..tostring(e)) end
+    end)
+    return Input
+end
 
--- ADD BUTTONS
-CreateBtn("Auto Open", 80, function(val)
-    AutoOpen = val
-    if val then
-        task.spawn(function()
-            while AutoOpen do
-                StatusLabel.Text = "Opening..."
-                -- Guess typical names
-                local remote = GetRemote("OpenCase") or GetRemote("Open") or GetRemote("BuyCase")
-                if remote then
-                    pcall(function() 
-                        if remote:IsA("RemoteEvent") then remote:FireServer(CaseName) 
-                        else remote:InvokeServer(CaseName) end 
-                    end)
-                else
-                    StatusLabel.Text = "NO REMOTE FOUND!"
-                end
-                task.wait(0.5)
+-- [2] LOGIC & AUTOMATION
+
+-- Safe Remote Finding
+local Remotes = {
+    Open = nil,
+    Sell = nil,
+    Quest = nil
+}
+
+local function ScanRemotes()
+    print("--- Scanning for Remotes ---")
+    local foundCount = 0
+    for _, child in pairs(ReplicatedStorage:GetDescendants()) do
+        if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
+            local name = child.Name:lower()
+            -- Heuristics to identify remotes
+            if name:find("open") or name:find("buy") or name:find("case") then
+                if not Remotes.Open then Remotes.Open = child; print("Found Open Remote:", child.Name) end
             end
-            StatusLabel.Text = "Stopped."
-        end)
+            if name:find("sell") then
+                if not Remotes.Sell then Remotes.Sell = child; print("Found Sell Remote:", child.Name) end
+            end
+            if name:find("quest") or name:find("claim") then
+                 if not Remotes.Quest then Remotes.Quest = child; print("Found Quest Remote:", child.Name) end
+            end
+            foundCount = foundCount + 1
+        end
+    end
+    print("--- Scan Complete ---")
+    return Remotes.Open, Remotes.Sell, Remotes.Quest
+end
+
+-- Initial Scan
+pcall(ScanRemotes)
+
+-- UI ELEMENTS
+
+local CaseInput = CreateInput("Case Name (Default: Starter Case)", function(text)
+    if text ~= "" then
+        Config.SelectedCase = text
     end
 end)
 
-CreateBtn("Auto Sell", 130, function(val)
-    AutoSell = val
-    if val then
-        task.spawn(function()
-            while AutoSell do
-                StatusLabel.Text = "Selling..."
-                 local remote = GetRemote("SellItems") or GetRemote("Sell") or GetRemote("SellInventory")
-                if remote then
-                    pcall(function() 
-                        if remote:IsA("RemoteEvent") then remote:FireServer() 
-                        else remote:InvokeServer() end 
-                    end)
-                end
-                task.wait(1)
-            end
-             StatusLabel.Text = "Stopped."
-        end)
-    end
-end)
 
-CreateBtn("Auto Level", 180, function(val)
-    AutoLevel = val
-    if val then
-        task.spawn(function()
-            while AutoLevel do
-                 StatusLabel.Text = "Leveling..."
-                 -- Try to find anything with "Reward" or "Level"
-                 for _, v in pairs(ReplicatedStorage:GetDescendants()) do
-                    if (v.Name == "Claim" or v.Name == "Reward") and v:IsA("RemoteEvent") then
-                        pcall(function() v:FireServer() end)
+CreateToggle("Auto Open Case", function(val)
+    Config.AutoOpen = val
+    if val and not Remotes.Open then ScanRemotes() end
+    
+    task.spawn(function()
+        while Config.AutoOpen do
+            if Remotes.Open then
+                 pcall(function()
+                    if Remotes.Open:IsA("RemoteEvent") then
+                        Remotes.Open:FireServer(Config.SelectedCase)
+                    else
+                        Remotes.Open:InvokeServer(Config.SelectedCase)
                     end
-                 end
-                task.wait(5)
+                end)
             end
-             StatusLabel.Text = "Stopped."
-        end)
-    end
+            task.wait(0.5)
+        end
+    end)
 end)
 
-print("--- FINISHED LOADING ---")
+CreateToggle("Auto Sell Items", function(val)
+    Config.AutoSell = val
+    if val and not Remotes.Sell then ScanRemotes() end
+
+    task.spawn(function()
+        while Config.AutoSell do
+            if Remotes.Sell then
+                pcall(function()
+                     if Remotes.Sell:IsA("RemoteEvent") then
+                        Remotes.Sell:FireServer()
+                    else
+                        Remotes.Sell:InvokeServer()
+                    end
+                end)
+            end
+            task.wait(1)
+        end
+    end)
+end)
+
+CreateToggle("Auto Quests", function(val)
+    Config.AutoQuests = val
+    if val and not Remotes.Quest then ScanRemotes() end
+
+    task.spawn(function()
+        while Config.AutoQuests do
+            if Remotes.Quest then
+               -- Try generic claim arguments often used in these games
+               pcall(function() 
+                    if Remotes.Quest:IsA("RemoteEvent") then
+                        Remotes.Quest:FireServer("Claim")
+                        Remotes.Quest:FireServer("Equip") -- Sometimes quest remotes handle multiple actions
+                    end
+               end)
+            end
+            task.wait(5)
+        end
+    end)
+end)
+
+CreateToggle("Auto Level Crate", function(val)
+    Config.AutoLevelCrates = val
+    task.spawn(function()
+        while Config.AutoLevelCrates do
+            -- Level crates are often clicked in Gui or a specific remote
+            -- We try to find a remote specifically for Level/Reward
+            local levelRemote = nil
+            for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+                if v.Name:lower():find("level") or v.Name:lower():find("reward") then
+                    if v:IsA("RemoteEvent") then
+                        levelRemote = v
+                        break
+                    end
+                end
+            end
+            
+            if levelRemote then
+                pcall(function() levelRemote:FireServer() end)
+            end
+            task.wait(5)
+        end
+    end)
+end)
+
+print("Case Paradise Script Loaded Successfully!")
