@@ -1,7 +1,6 @@
--- Case Paradise Script (Premium Native UI) v3
+-- Case Paradise Script (Premium Native UI) v3.1
 -- Author: Antigravity
--- Features: Modern Dark Theme, Automated Logic, Crate List, Status Dashboard.
--- No external libraries. 100% Native.
+-- Status: Dynamic Scraper + Debugger. No more guessing.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,7 +16,7 @@ local Config = {
     AutoSell = false,
     AutoQuests = false,
     AutoLevelCrates = false,
-    SelectedCase = "Starter Case"
+    SelectedCase = "Starter Case" -- Will be updated by scraper
 }
 
 -- [THEME]
@@ -33,10 +32,13 @@ local Theme = {
     ToggleOn = Color3.fromRGB(0, 180, 100)
 }
 
--- [REMOTES]
+-- [REMOTES & DATA]
 local Remotes = { Open = nil, Sell = nil, Quest = nil, Level = nil }
+local KnownCrates = {} -- Dynamic list
+local CrateScrollFrame = nil -- Reference to updating list
 
 local function ScanRemotes()
+    print("Scanning Remotes...")
     for _, child in pairs(ReplicatedStorage:GetDescendants()) do
         if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
             local name = child.Name:lower()
@@ -47,7 +49,97 @@ local function ScanRemotes()
         end
     end
 end
-pcall(ScanRemotes)
+
+-- [DYNAMIC SCRAPER]
+local function ScrapeCrates()
+    print("Scraping for Crates...")
+    local potentialCrates = {}
+    
+    -- Strategy 1: Look for Folders in ReplicatedStorage named "Cases", "Crates"
+    local function scanFolder(folder)
+        for _, child in pairs(folder:GetChildren()) do
+            table.insert(potentialCrates, child.Name)
+        end
+    end
+
+    for _, v in pairs(ReplicatedStorage:GetChildren()) do
+        if v:IsA("Folder") and (v.Name == "Cases" or v.Name == "Crates" or v.Name == "Boxes" or v.Name == "Data") then
+            scanFolder(v)
+        end
+    end
+    
+    -- Strategy 2: Look for Buttons in PlayerGui (Shop)
+    local function scanGui(gui)
+        for _, v in pairs(gui:GetDescendants()) do
+            if v:IsA("TextButton") or v:IsA("ImageButton") then
+                if v.Name:lower():find("case") then
+                    table.insert(potentialCrates, v.Name)
+                end
+            end
+        end
+    end
+    scanGui(PlayerGui)
+
+    -- Fallback: If empty, add generics
+    if #potentialCrates == 0 then
+        table.insert(potentialCrates, "Starter Case")
+        table.insert(potentialCrates, "Common Case")
+        warn("Scraper found NOTHING. Using defaults.")
+    else
+        print("Scraper found " .. #potentialCrates .. " crates.")
+    end
+
+    -- Update Global List (Unique only)
+    local unique = {}
+    KnownCrates = {}
+    for _, name in ipairs(potentialCrates) do
+        if not unique[name] then
+            unique[name] = true
+            table.insert(KnownCrates, name)
+        end
+    end
+    table.sort(KnownCrates)
+    
+    -- Refresh UI if it exists
+    if CrateScrollFrame then
+        for _, v in pairs(CrateScrollFrame:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
+        for _, crate in ipairs(KnownCrates) do
+            local Btn = Instance.new("TextButton")
+            Btn.Text = crate
+            Btn.Size = UDim2.new(1, 0, 0, 35)
+            Btn.BackgroundColor3 = Theme.Sidebar
+            Btn.TextColor3 = Theme.Text
+            Btn.Font = Enum.Font.GothamMedium
+            Btn.TextSize = 13
+            Btn.Parent = CrateScrollFrame
+            
+            local CCorner = Instance.new("UICorner"); CCorner.Parent = Btn
+            
+            Btn.MouseButton1Click:Connect(function()
+                Config.SelectedCase = crate
+                -- Visual update handled by main loop or event
+            end)
+        end
+    end
+end
+
+local function DebugDump()
+    print("--- DUMPING REPLICATED STORAGE ---")
+    for _, v in pairs(ReplicatedStorage:GetChildren()) do
+        print(v.Name .. " [" .. v.ClassName .. "]")
+        if v:IsA("Folder") then
+             for _, c in pairs(v:GetChildren()) do
+                print("  > " .. c.Name)
+             end
+        end
+    end
+    
+    print("--- DUMPING PLAYER GUI ---")
+    for _, v in pairs(PlayerGui:GetChildren()) do
+        print(v.Name)
+    end
+    print("--- END DUMP ---")
+end
 
 -- [UI BUILDER]
 if PlayerGui:FindFirstChild("CaseParadisePremium") then PlayerGui.CaseParadisePremium:Destroy() end
@@ -59,8 +151,8 @@ ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 500, 0, 350)
-MainFrame.Position = UDim2.new(0.5, -250, 0.5, -175)
+MainFrame.Size = UDim2.new(0, 500, 0, 400) -- Taller for log
+MainFrame.Position = UDim2.new(0.5, -250, 0.5, -200)
 MainFrame.BackgroundColor3 = Theme.Background
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = true
@@ -80,7 +172,7 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3"
+Title.Text = "Case Paradise | V3.1 Scraper"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
@@ -143,7 +235,6 @@ local function CreateTab(name)
     UIList.SortOrder = Enum.SortOrder.LayoutOrder
     UIList.Parent = TabFrame
     
-    -- List layout logic
     local function UpdateLayout() TabFrame.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y + 10) end
     UIList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(UpdateLayout)
     
@@ -235,7 +326,7 @@ end
 -- [BUILD TABS]
 CreateTab("Main")
 CreateTab("Crates")
-CreateTab("Settings")
+CreateTab("Utils")
 
 -- Main Tab
 CreateSection("Main", "Automation")
@@ -244,10 +335,9 @@ CreateToggle("Main", "Auto Sell Items", function(v) Config.AutoSell = v; if v th
 CreateToggle("Main", "Auto Do Quests", function(v) Config.AutoQuests = v; if v then ScanRemotes() end end)
 CreateToggle("Main", "Auto Level Crates", function(v) Config.AutoLevelCrates = v end)
 
--- Crates Tab (Scrolling List)
+-- Crates Tab (Dynamic List)
 CreateSection("Crates", "Click to Select Case")
 
-local CrateListAPI = {}
 local CrateDisplay = Instance.new("TextLabel")
 CrateDisplay.Text = "Selected: "..Config.SelectedCase
 CrateDisplay.Size = UDim2.new(1, 0, 0, 30)
@@ -258,82 +348,64 @@ CrateDisplay.TextSize = 14
 CrateDisplay.Parent = Tabs.Crates.Frame
 local CornerCrate = Instance.new("UICorner"); CornerCrate.Parent = CrateDisplay
 
-local KnownCrates = {
-    "Starter Case", "Common Case", "Uncommon Case", "Rare Case", 
-    "Epic Case", "Legendary Case", "Mythical Case", "Candy Case",
-    "Toy Case", "Space Case", "Void Case", "Ocean Case"
-}
+-- Store reference to frame for dynamic update
+CrateScrollFrame = Tabs.Crates.Frame 
 
-for _, crate in ipairs(KnownCrates) do
-    local Btn = Instance.new("TextButton")
-    Btn.Text = crate
-    Btn.Size = UDim2.new(1, 0, 0, 35)
-    Btn.BackgroundColor3 = Theme.Sidebar
-    Btn.TextColor3 = Theme.Text
-    Btn.Font = Enum.Font.GothamMedium
-    Btn.TextSize = 13
-    Btn.Parent = Tabs.Crates.Frame
-    
-    local CCorner = Instance.new("UICorner")
-    CCorner.Parent = Btn
-    
-    Btn.MouseButton1Click:Connect(function()
-        Config.SelectedCase = crate
-        CrateDisplay.Text = "Selected: "..crate
-    end)
-end
+local RefreshBtn = Instance.new("TextButton")
+RefreshBtn.Text = "Refresh Crate List"
+RefreshBtn.Size = UDim2.new(1, 0, 0, 35)
+RefreshBtn.BackgroundColor3 = Theme.Sidebar
+RefreshBtn.TextColor3 = Theme.Accent
+RefreshBtn.Font = Enum.Font.GothamBold
+RefreshBtn.Parent = Tabs.Crates.Frame
+local RefreshCorner = Instance.new("UICorner"); RefreshCorner.Parent = RefreshBtn
+RefreshBtn.MouseButton1Click:Connect(ScrapeCrates)
 
--- Settings Tab (Remote Status)
-CreateSection("Settings", "Remote Status")
+-- Input Field Manual Override
+local ManualBox = Instance.new("TextBox")
+ManualBox.PlaceholderText = "Or Type Case Name Here..."
+ManualBox.Text = ""
+ManualBox.Size = UDim2.new(1, 0, 0, 35)
+ManualBox.BackgroundColor3 = Theme.Sidebar
+ManualBox.TextColor3 = Theme.Text
+ManualBox.Font = Enum.Font.Gotham
+ManualBox.Parent = Tabs.Crates.Frame
+local ManualCorner = Instance.new("UICorner"); ManualCorner.Parent = ManualBox
+ManualBox.FocusLost:Connect(function()
+    if ManualBox.Text ~= "" then
+        Config.SelectedCase = ManualBox.Text
+        CrateDisplay.Text = "Selected: "..ManualBox.Text
+    end
+end)
 
-local function AddStatus(name, key)
-    local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(1, 0, 0, 30)
-    Frame.BackgroundTransparency = 1
-    Frame.Parent = Tabs.Settings.Frame
-    
-    local Lbl = Instance.new("TextLabel")
-    Lbl.Text = name
-    Lbl.Size = UDim2.new(0.7, 0, 1, 0)
-    Lbl.BackgroundTransparency = 1
-    Lbl.TextColor3 = Theme.Text
-    Lbl.Font = Enum.Font.Gotham
-    Lbl.TextXAlignment = Enum.TextXAlignment.Left
-    Lbl.Parent = Frame
-    
-    local Indicator = Instance.new("Frame")
-    Indicator.Size = UDim2.new(0, 10, 0, 10)
-    Indicator.Position = UDim2.new(1, -20, 0.5, -5)
-    Indicator.BackgroundColor3 = Theme.Error
-    Indicator.Parent = Frame
-    
-    local IndCorner = Instance.new("UICorner"); IndCorner.CornerRadius = UDim.new(1,0); IndCorner.Parent = Indicator
-    
-    task.spawn(function()
-        while true do
-            if Remotes[key] then Indicator.BackgroundColor3 = Theme.Success else Indicator.BackgroundColor3 = Theme.Error end
-            task.wait(1)
-        end
-    end)
-end
+-- Utils Tab (Debug Tools)
+CreateSection("Utils", "Debug Tools")
 
-AddStatus("Open Remote", "Open")
-AddStatus("Sell Remote", "Sell")
-AddStatus("Quest Remote", "Quest")
-AddStatus("Level Remote", "Level")
+local DumpBtn = Instance.new("TextButton")
+DumpBtn.Text = "Dump Game Info (F9)"
+DumpBtn.Size = UDim2.new(1, 0, 0, 40)
+DumpBtn.BackgroundColor3 = Theme.Error
+DumpBtn.TextColor3 = Theme.Text
+DumpBtn.Font = Enum.Font.GothamBold
+DumpBtn.Parent = Tabs.Utils.Frame
+local DumpCorner = Instance.new("UICorner"); DumpCorner.Parent = DumpBtn
+DumpBtn.MouseButton1Click:Connect(DebugDump)
 
-local ScanBtn = Instance.new("TextButton")
-ScanBtn.Text = "Re-Scan Remotes"
-ScanBtn.Size = UDim2.new(1, 0, 0, 40)
-ScanBtn.BackgroundColor3 = Theme.Accent
-ScanBtn.TextColor3 = Theme.Text
-ScanBtn.Font = Enum.Font.GothamBold
-ScanBtn.Parent = Tabs.Settings.Frame
-local ScanCorner = Instance.new("UICorner"); ScanCorner.Parent = ScanBtn; 
-ScanBtn.MouseButton1Click:Connect(ScanRemotes)
+-- Sidebar Layout Order
+local Layout = Sidebar:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout", Sidebar)
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
 
--- [AUTOMATION LOGIC]
+-- Init
+pcall(ScanRemotes)
+pcall(ScrapeCrates) -- Run scraper once on load
 
+-- Select First Tab
+Tabs.Main.Btn.TextColor3 = Theme.Accent
+Tabs.Main.Frame.Visible = true
+
+print("Case Paradise Script V3.1 Loaded")
+
+-- [AUTOMATION LOOPS]
 task.spawn(function()
     while true do
         if Config.AutoOpen and Remotes.Open then
@@ -347,7 +419,7 @@ task.spawn(function()
                 if Remotes.Sell:IsA("RemoteEvent") then Remotes.Sell:FireServer() else Remotes.Sell:InvokeServer() end 
             end)
         end
-        task.wait(0.5) -- Fast loop for opening/selling
+        task.wait(0.5) 
     end
 end)
 
@@ -362,20 +434,9 @@ task.spawn(function()
             end)
         end
         if Config.AutoLevelCrates then
-             -- Try dynamic find for level crates if remote is missing
              if not Remotes.Level then ScanRemotes() end
              if Remotes.Level then pcall(function() Remotes.Level:FireServer() end) end
         end
-        task.wait(5) -- Slower loop for quests/levels
+        task.wait(5)
     end
 end)
-
--- Sidebar Layout Order
-local Layout = Sidebar:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout", Sidebar)
-Layout.SortOrder = Enum.SortOrder.LayoutOrder
-
--- Select First Tab
-Tabs.Main.Btn.TextColor3 = Theme.Accent
-Tabs.Main.Frame.Visible = true
-
-print("Case Paradise Script V3 Loaded")
