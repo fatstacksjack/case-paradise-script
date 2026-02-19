@@ -6,7 +6,6 @@
 local success, OrionLib = pcall(function() return loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))() end)
 if not success then
     warn("Failed to load OrionLib")
-    OrionLib = {} -- Placeholder if failed, but script will likely break
     return
 end
 
@@ -15,7 +14,7 @@ local Window = OrionLib:MakeWindow({Name = "Case Paradise | Velocity", HidePremi
 -- Configuration Variables
 getgenv().AutoOpen = false
 getgenv().AutoSell = false
-getgenv().SelectedCase = "Starter Case" -- Change this to the exact name of the case you want to open
+getgenv().SelectedCase = "Starter Case" 
 getgenv().OpenRemoteName = "OpenCase" 
 getgenv().SellRemoteName = "SellItems" 
 
@@ -25,14 +24,17 @@ local SellRemote = nil
 
 -- Helper function to find remotes safely
 local function FindRemoteRecursively(name)
-    local found = nil
+    local found = ReplicatedStorage:FindFirstChild(name, true)
+    if found and (found:IsA("RemoteEvent") or found:IsA("RemoteFunction")) then
+        return found
+    end
+    -- Fallback: Manual search if FindFirstChild fails (rare but possible)
     for _, child in pairs(ReplicatedStorage:GetDescendants()) do
         if child.Name == name and (child:IsA("RemoteEvent") or child:IsA("RemoteFunction")) then
-            found = child
-            break
+            return child
         end
     end
-    return found
+    return nil
 end
 
 local function UpdateRemotes()
@@ -40,15 +42,11 @@ local function UpdateRemotes()
     SellRemote = FindRemoteRecursively(getgenv().SellRemoteName)
     
     if OpenRemote then
-        OrionLib:MakeNotification({Name = "Remote Found", Content = "Open Remote: " .. OpenRemote.Name .. " (" .. OpenRemote.ClassName .. ")", Time = 3})
-    else
-        warn("Open Remote NOT found: " .. getgenv().OpenRemoteName)
+        OrionLib:MakeNotification({Name = "Remote Found", Content = "Open: " .. OpenRemote.Name, Time = 3})
     end
     
     if SellRemote then
-         OrionLib:MakeNotification({Name = "Remote Found", Content = "Sell Remote: " .. SellRemote.Name .. " (" .. SellRemote.ClassName .. ")", Time = 3})
-    else
-        warn("Sell Remote NOT found: " .. getgenv().SellRemoteName)
+         OrionLib:MakeNotification({Name = "Remote Found", Content = "Sell: " .. SellRemote.Name, Time = 3})
     end
 end
 
@@ -86,23 +84,26 @@ MainTab:AddToggle({
 	Name = "Auto Open Case",
 	Default = false,
 	Callback = function(Value)
-		getgenv().AutoOpen = Value
-        if Value then
-            task.spawn(function()
-                while getgenv().AutoOpen do
-                    if OpenRemote then
-                        pcall(function()
-                            if OpenRemote:IsA("RemoteEvent") then
-                                OpenRemote:FireServer(getgenv().SelectedCase)
-                            elseif OpenRemote:IsA("RemoteFunction") then
-                                OpenRemote:InvokeServer(getgenv().SelectedCase)
-                            end
-                        end)
+        local success, err = pcall(function()
+            getgenv().AutoOpen = Value
+            if Value then
+                task.spawn(function()
+                    while getgenv().AutoOpen do
+                        if OpenRemote then
+                            pcall(function()
+                                if OpenRemote:IsA("RemoteEvent") then
+                                    OpenRemote:FireServer(getgenv().SelectedCase)
+                                elseif OpenRemote:IsA("RemoteFunction") then
+                                    OpenRemote:InvokeServer(getgenv().SelectedCase)
+                                end
+                            end)
+                        end
+                        task.wait(1) 
                     end
-                    task.wait(1) 
-                end
-            end)
-        end
+                end)
+            end
+        end)
+        if not success then warn("Toggle Callback Error: " .. tostring(err)) end
 	end    
 })
 
@@ -110,23 +111,26 @@ MainTab:AddToggle({
 	Name = "Auto Sell Items",
 	Default = false,
 	Callback = function(Value)
-		getgenv().AutoSell = Value
-        if Value then
-            task.spawn(function()
-                while getgenv().AutoSell do
-                    if SellRemote then
-                        pcall(function()
-                            if SellRemote:IsA("RemoteEvent") then
-                                SellRemote:FireServer()
-                            elseif SellRemote:IsA("RemoteFunction") then
-                                SellRemote:InvokeServer()
-                            end
-                        end)
+        local success, err = pcall(function()
+            getgenv().AutoSell = Value
+            if Value then
+                task.spawn(function()
+                    while getgenv().AutoSell do
+                        if SellRemote then
+                            pcall(function()
+                                if SellRemote:IsA("RemoteEvent") then
+                                    SellRemote:FireServer()
+                                elseif SellRemote:IsA("RemoteFunction") then
+                                    SellRemote:InvokeServer()
+                                end
+                            end)
+                        end
+                        task.wait(2)
                     end
-                    task.wait(2)
-                end
-            end)
-        end
+                end)
+            end
+        end)
+        if not success then warn("Toggle Callback Error: " .. tostring(err)) end
 	end    
 })
 
@@ -173,20 +177,22 @@ SettingsTab:AddTextbox({
 SettingsTab:AddButton({
 	Name = "Scan and Print Remotes (F9)",
 	Callback = function()
-        print("--- Scanning ReplicatedStorage for RemoteEvents ---")
-        local count = 0
-        for _, child in pairs(ReplicatedStorage:GetDescendants()) do
-            if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
-                print("Found " .. child.ClassName .. ": " .. child.Name .. " | Parent: " .. child.Parent.Name)
-                count = count + 1
+        pcall(function()
+            print("--- Scanning ReplicatedStorage for RemoteEvents ---")
+            local count = 0
+            for _, child in pairs(ReplicatedStorage:GetDescendants()) do
+                if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
+                    print("Found " .. child.ClassName .. ": " .. child.Name .. " | Parent: " .. child.Parent.Name)
+                    count = count + 1
+                end
             end
-        end
-        print("--- Scan Complete: Found " .. count .. " Remotes ---")
-        OrionLib:MakeNotification({
-            Name = "Scan Complete",
-            Content = "Check Console (F9) for results!",
-            Time = 5
-        })
+            print("--- Scan Complete: Found " .. count .. " Remotes ---")
+            OrionLib:MakeNotification({
+                Name = "Scan Complete",
+                Content = "Check Console (F9) for results!",
+                Time = 5
+            })
+        end)
   	end    
 })
 
@@ -200,16 +206,18 @@ local MiscTab = Window:MakeTab({
 MiscTab:AddButton({
 	Name = "Anti-AFK",
 	Callback = function()
-        local VirtualUser = game:GetService("VirtualUser")
-        game:GetService("Players").LocalPlayer.Idled:Connect(function()
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new())
+        pcall(function()
+            local VirtualUser = game:GetService("VirtualUser")
+            game:GetService("Players").LocalPlayer.Idled:Connect(function()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new())
+            end)
+            OrionLib:MakeNotification({
+                Name = "Anti-AFK",
+                Content = "You will not be kicked for idling.",
+                Time = 3
+            })
         end)
-        OrionLib:MakeNotification({
-            Name = "Anti-AFK",
-            Content = "You will not be kicked for idling.",
-            Time = 3
-        })
   	end    
 })
 
