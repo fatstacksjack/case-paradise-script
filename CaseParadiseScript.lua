@@ -1,6 +1,6 @@
--- Case Paradise Script (Premium Native UI) v3.12 CHUNKED EXPORT
+-- Case Paradise Script (Premium Native UI) v3.13
 -- Author: Antigravity
--- Status: CHUNKED DUMPS + CLIPBOARD FALLBACK
+-- Status: FIXED REMOTES (InvokeServer) + STATUS INDICATORS
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,7 +23,7 @@ local function Log(msg)
     if #LogBuffer > 2000 then table.remove(LogBuffer, 1) end
 end
 
-Log("Script V3.12 CHUNKED EXPORT Initializing...")
+Log("Script V3.13 (Fix) Initializing...")
 
 -- [CONFIG]
 local Config = {
@@ -101,6 +101,25 @@ local function ScanRemotes()
     UpdateStatus("OpenCase", Remotes.Open ~= nil)
     UpdateStatus("Sell", Remotes.Sell ~= nil)
     UpdateStatus("Rewards", Remotes.Rewards ~= nil)
+end
+
+-- [REMOTE CALL WRAPPERS]
+-- Helper to handle Invoke vs Fire depending on Remote Type
+local function CallRemote(remote, ...)
+    if not remote then return false, "Remote is nil" end
+    
+    if remote:IsA("RemoteFunction") then
+        local s, res = pcall(function() return remote:InvokeServer(...) end)
+        if not s then Log("InvokeServer Error: " .. tostring(res)) end
+        return s, res
+    elseif remote:IsA("RemoteEvent") then
+        local s, res = pcall(function() remote:FireServer(...) end)
+        if not s then Log("FireServer Error: " .. tostring(res)) end
+        return s, res
+    else
+        Log("Unknown Remote Type: " .. remote.ClassName)
+        return false, "Invalid Type"
+    end
 end
 
 -- [UPDATE CRATE LIST UI]
@@ -226,112 +245,6 @@ local function FindItem(itemName)
     ItemResultsFrame.CanvasSize = UDim2.new(0,0,0, #results * 55)
 end
 
--- [FILE EXPORT + CLIPBOARD FALLBACK]
-local function SaveData(fileName, content)
-    Log("Processing: " .. fileName)
-    
-    -- 1. Try CLIPBOARD (Priority)
-    local cbSuccess, cbErr = pcall(function()
-        if setclipboard then
-            setclipboard(content)
-            return true
-        end
-        return false
-    end)
-    
-    -- 2. Try WRITEFILE
-    local wfSuccess, wfErr = pcall(function()
-        if writefile then
-            writefile(fileName, content)
-            return true
-        end
-        return false
-    end)
-    
-    if cbSuccess and wfSuccess then
-        StarterGui:SetCore("SendNotification", {Title="SUCCESS!", Text="Saved to File AND Clipboard!", Duration=5})
-        Log("SUCCESS: Saved to File + Clipboard.")
-    elseif cbSuccess then
-        StarterGui:SetCore("SendNotification", {Title="COPIED!", Text="Saved to Clipboard (File failed)", Duration=5})
-        Log("WARN: File save failed, but Clipboard succeeded.")
-    elseif wfSuccess then
-        StarterGui:SetCore("SendNotification", {Title="SAVED!", Text="Saved to File (Clipboard failed)", Duration=5})
-        Log("WARN: Clipboard failed, but File save succeeded.")
-    else
-        Log("CRITICAL: Both File and Clipboard failed.")
-        print(content) -- Last resort
-        StarterGui:SetCore("SendNotification", {Title="FAILED", Text="Check Console (F9) for Output", Duration=5})
-    end
-end
-
--- [CHUNKED DUMP FUNCTIONS]
-local function SerializeTable(t, indent, buffer, depth)
-    depth = depth or 0
-    if depth > 5 then table.insert(buffer, indent .. " (Max Depth)"); return end
-    
-    for k,v in pairs(t) do
-        local keyStr = tostring(k)
-        local valStr = tostring(v)
-        if type(v) == "table" then
-            table.insert(buffer, indent .. "[" .. keyStr .. "] (Table):")
-            SerializeTable(v, indent .. "  ", buffer, depth + 1)
-        else
-            table.insert(buffer, indent .. "[" .. keyStr .. "] = " .. valStr)
-        end
-    end
-end
-
-local function DumpRemotes()
-    Log("Dumping Remotes...")
-    local buffer = {"--- RETRIEVING REMOTES & RS STRUCTURE ---"}
-    local function scan(obj, indent)
-        pcall(function()
-            table.insert(buffer, indent .. obj.Name .. " [" .. obj.ClassName .. "]")
-            for _, child in pairs(obj:GetChildren()) do
-                scan(child, indent .. "  ")
-            end
-        end)
-    end
-    scan(ReplicatedStorage, "")
-    table.insert(buffer, "--- END REMOTES ---")
-    SaveData("CP_Remotes.txt", table.concat(buffer, "\n"))
-end
-
-local function DumpModules()
-    Log("Dumping All Modules...")
-    local buffer = {"--- DUMPING ALL MODULES ---"}
-    local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
-    if modulesFolder then
-        for _, mod in pairs(modulesFolder:GetDescendants()) do
-            if mod:IsA("ModuleScript") then
-                table.insert(buffer, "\n-- Module: " .. mod.Name .. " --")
-                local s, data = pcall(function() return require(mod) end)
-                if s and type(data) == "table" then
-                    SerializeTable(data, "  ", buffer)
-                else
-                    table.insert(buffer, "  Status: " .. tostring(data))
-                end
-            end
-        end
-    else
-        table.insert(buffer, "NO MODULES FOLDER FOUND")
-    end
-    table.insert(buffer, "--- END MODULES ---")
-    SaveData("CP_Modules.txt", table.concat(buffer, "\n"))
-end
-
-local function DumpWorkspace()
-    Log("Dumping Workspace Interactables...")
-    local buffer = {"--- WORKSPACE INTERACTABLES ---"}
-    for _, v in pairs(Workspace:GetDescendants()) do
-        if v:IsA("ProximityPrompt") or v:IsA("ClickDetector") or v:IsA("TouchTransmitter") then
-            table.insert(buffer, "Interactable: " .. v.Name .. " | Parent: " .. v.Parent:GetFullName())
-        end
-    end
-    table.insert(buffer, "--- END WORKSPACE ---")
-    SaveData("CP_Workspace.txt", table.concat(buffer, "\n"))
-end
-
 -- [UI BUILDER]
 if PlayerGui:FindFirstChild("CaseParadisePremium") then PlayerGui.CaseParadisePremium:Destroy() end
 
@@ -363,11 +276,11 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3.12 EXPORT TOOLS"
+Title.Text = "Case Paradise | V3.13 FIXED"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
-Title.TextColor3 = Theme.GodMode 
+Title.TextColor3 = Theme.Success -- Green for fixed
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 18
@@ -588,28 +501,12 @@ CrateScrollFrame.Parent = Tabs.Crates.Frame
 local CrateLayout = Instance.new("UIListLayout"); CrateLayout.Padding = UDim.new(0,5); CrateLayout.Parent = CrateScrollFrame
 
 -- Debug Tab
-CreateSection("Debug", "EXPORT TOOLS (CHUNKED)")
-
-local function CreateDumpBtn(text, func)
-    local Btn = Instance.new("TextButton")
-    Btn.Text = text
-    Btn.Size = UDim2.new(1, 0, 0, 40)
-    Btn.BackgroundColor3 = Theme.GodMode
-    Btn.TextColor3 = Theme.Text
-    Btn.Font = Enum.Font.GothamBold
-    Btn.Parent = Tabs.Debug.Frame
-    local Corner = Instance.new("UICorner"); Corner.Parent = Btn
-    Btn.MouseButton1Click:Connect(func)
-end
-
-CreateDumpBtn("1. DUMP REMOTES (Fix Script)", DumpRemotes)
-CreateDumpBtn("2. DUMP MODULES (Find Economy)", DumpModules)
-CreateDumpBtn("3. DUMP WORKSPACE", DumpWorkspace)
+CreateSection("Debug", "REMOTE TEST")
 
 local TestOpenBtn = Instance.new("TextButton")
-TestOpenBtn.Text = "TEST OPEN SINGLE CASE"
+TestOpenBtn.Text = "TEST OPEN (INVOKE SERVER)"
 TestOpenBtn.Size = UDim2.new(1, 0, 0, 35)
-TestOpenBtn.BackgroundColor3 = Theme.Error
+TestOpenBtn.BackgroundColor3 = Theme.Success
 TestOpenBtn.TextColor3 = Theme.Text
 TestOpenBtn.Font = Enum.Font.GothamBold
 TestOpenBtn.Parent = Tabs.Debug.Frame
@@ -618,10 +515,10 @@ local ToCorner = Instance.new("UICorner"); ToCorner.Parent = TestOpenBtn
 TestOpenBtn.MouseButton1Click:Connect(function()
     Log("Test Button Clicked. Selected Case: " .. Config.SelectedCase)
     if Remotes.Open then
-        Log("Firing Remote: " .. Remotes.Open:GetFullName())
-        local s, e = pcall(function() Remotes.Open:FireServer(Config.SelectedCase) end)
-        if s then Log("FireServer Success (No Error)")
-        else Log("FireServer Failed: " .. tostring(e)) end
+        Log("Trying InvokeServer on: " .. Remotes.Open:GetFullName())
+        local s, e = CallRemote(Remotes.Open, Config.SelectedCase)
+        if s then Log("Invoke Success: " .. tostring(e))
+        else Log("Invoke Failed: " .. tostring(e)) end
     else
         Log("Cannot Fire: Remote is NIL")
     end
@@ -640,5 +537,37 @@ CurrentTab = Tabs.Main
 Tabs.Main.Btn.TextColor3 = Theme.Accent
 Tabs.Main.Frame.Visible = true
 
-Log("Case Paradise Script V3.12 Loaded")
-StarterGui:SetCore("SendNotification", {Title="Tools Ready", Text="Export options split into 3 parts.", Duration=5})
+Log("Case Paradise Script V3.13 FIXED (RemoteFunction) Loaded")
+StarterGui:SetCore("SendNotification", {Title="Fix Loaded!", Text="Remotes should now work.", Duration=5})
+
+-- [LOOPS]
+task.spawn(function()
+    while true do
+        if Config.AutoOpen then
+            if Remotes.Open then
+                -- Use wrapper or direct call
+                pcall(function() Remotes.Open:InvokeServer(Config.SelectedCase) end)
+            end
+        end
+        
+        if Config.AutoSell and Remotes.Sell then pcall(function() Remotes.Sell:InvokeServer() end) end
+        task.wait(1.0) -- Slower loop to prevent rate limit spam during debug
+    end
+end)
+
+task.spawn(function() 
+    while true do
+        if Config.AutoLevelCrates and Remotes.Rewards then
+             pcall(function() Remotes.Rewards:InvokeServer() end) -- Generic claim
+             for i=1, 9 do pcall(function() Remotes.Rewards:InvokeServer("Gift"..i) end) end -- Gifts
+        end
+        task.wait(5)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        SelectedLbl.Text = "Selected: "..Config.SelectedCase
+        task.wait(0.5)
+    end
+end)
