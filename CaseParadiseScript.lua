@@ -1,6 +1,6 @@
--- Case Paradise Script (Premium Native UI) v3.5
+-- Case Paradise Script (Premium Native UI) v3.6
 -- Author: Antigravity
--- Status: SEARCH BAR + FILE EXPORT (writefile)
+-- Status: SEARCH BAR + FILE EXPORT + COPY (setclipboard)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -153,8 +153,6 @@ local function DeepScanExport()
     
     local buffer = {}
     table.insert(buffer, "--- CASE PARADISE MODULE DUMP ---")
-    table.insert(buffer, "Time: " .. os.date("%c"))
-    table.insert(buffer, "")
     
     local function serializeTable(t, indent)
         for k,v in pairs(t) do
@@ -169,32 +167,46 @@ local function DeepScanExport()
         end
     end
     
-    table.insert(buffer, "Module: Cases")
-    serializeTable(Cases, "")
-    table.insert(buffer, "--- END DUMP ---")
+    -- Try to serialize
+    local success, err = pcall(function()
+        table.insert(buffer, "Module: Cases")
+        serializeTable(Cases, "")
+        table.insert(buffer, "--- END DUMP ---")
+    end)
     
     local fileContent = table.concat(buffer, "\n")
     
-    -- Try to write file
-    local fileSuccess, err = pcall(function()
-        writefile("CaseParadise_Dump.txt", fileContent)
+    -- 1. Try SetClipboard (Best option)
+    local clipboardSuccess, cerr = pcall(function()
+        if setclipboard then
+            setclipboard(fileContent)
+            return true
+        end
+        return false
+    end)
+
+    if clipboardSuccess then
+        StarterGui:SetCore("SendNotification", {Title="COPIED TO CLIPBOARD!", Text="Paste it into the chat!", Duration=5})
+        return
+    end
+
+    -- 2. Try WriteFile (Backup)
+    local fileSuccess, ferr = pcall(function()
+        if writefile then
+            writefile("CaseParadise_Dump.txt", fileContent)
+            return true
+        end
+        return false
     end)
     
     if fileSuccess then
         print("DUMP SAVED TO WORKSPACE FOLDER: CaseParadise_Dump.txt")
-        StarterGui:SetCore("SendNotification", {
-            Title = "Use 'Export Success'!",
-            Text = "Saved to workspace/CaseParadise_Dump.txt",
-            Duration = 5
-        })
+        StarterGui:SetCore("SendNotification", {Title="Saved as File", Text="Check workspace/CaseParadise_Dump.txt", Duration=5})
     else
-        warn("WRITEFILE FAILED: " .. tostring(err))
-        print(fileContent) -- Fallback to console print
-        StarterGui:SetCore("SendNotification", {
-            Title = "Export Failed",
-            Text = "Check console (F9) for output.",
-            Duration = 5
-        })
+        -- 3. Last Resort: Print to Console
+        print(fileContent)
+        warn("Could not Copy or Save. Printing to console (F9) instead.")
+        StarterGui:SetCore("SendNotification", {Title="Export Failed", Text="Check console (F9). Copy/Paste failed.", Duration=5})
     end
 end
 
@@ -229,7 +241,7 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3.5 File Export"
+Title.Text = "Case Paradise | V3.6 Clipboard"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
@@ -422,7 +434,7 @@ local CrateLayout = Instance.new("UIListLayout"); CrateLayout.Padding = UDim.new
 -- Debug Tab
 CreateSection("Debug", "Power Tools")
 local DeepScanBtn = Instance.new("TextButton")
-DeepScanBtn.Text = "EXPORT MODULE DATA (writefile)"
+DeepScanBtn.Text = "COPY DATA TO CLIPBOARD"
 DeepScanBtn.Size = UDim2.new(1, 0, 0, 40)
 DeepScanBtn.BackgroundColor3 = Theme.Accent
 DeepScanBtn.TextColor3 = Theme.Text
@@ -454,7 +466,7 @@ CurrentTab = Tabs.Main
 Tabs.Main.Btn.TextColor3 = Theme.Accent
 Tabs.Main.Frame.Visible = true
 
-print("Case Paradise Script V3.5 Loaded")
+print("Case Paradise Script V3.6 Loaded")
 
 -- [LOOPS]
 task.spawn(function()
