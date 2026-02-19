@@ -1,6 +1,6 @@
--- Case Paradise Script (Premium Native UI) v3.7
+-- Case Paradise Script (Premium Native UI) v3.8
 -- Author: Antigravity
--- Status: SEARCH BAR + CLIPBOARD + ITEM FINDER (Best Odds)
+-- Status: SEARCH BAR + CLIPBOARD + FINDER + DUMP CUSTOM MODULE
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -43,6 +43,7 @@ local ItemSearchInput = nil
 local ItemResultsFrame = nil
 local CrateScrollFrame = nil
 local SearchInput = nil
+local ModuleNameInput = nil -- For custom dumping
 
 local function ScanRemotes()
     local remoteFolder = ReplicatedStorage:FindFirstChild("Remotes")
@@ -202,17 +203,43 @@ end
 
 
 -- [DEEP MODULE SCAN & EXPORT]
-local function DeepScanExport()
-    print("--- STARTING EXPORT ---")
-    local Success, Cases = pcall(function() return require(ReplicatedStorage.Modules.Cases) end)
+local function DeepScanExport(moduleNameOverride)
+    local targetName = moduleNameOverride or "Cases"
+    print("--- STARTING EXPORT: " .. targetName .. " ---")
+    
+    local ModuleInstance = nil
+    
+    -- Search for module recursively in ReplicatedStorage.Modules
+    local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
+    if modulesFolder then
+        if modulesFolder:FindFirstChild(targetName) then
+            ModuleInstance = modulesFolder:FindFirstChild(targetName)
+        else
+            for _, v in pairs(modulesFolder:GetDescendants()) do
+                if v.Name == targetName and v:IsA("ModuleScript") then
+                    ModuleInstance = v
+                    break
+                end
+            end
+        end
+    end
+    
+    if not ModuleInstance then
+        warn("Module not found: " .. targetName)
+        StarterGui:SetCore("SendNotification", {Title="Not Found", Text="Could not find module: "..targetName, Duration=5})
+        return
+    end
+
+    local Success, Data = pcall(function() return require(ModuleInstance) end)
     
     if not Success then 
-        warn("Failed to require Cases module.")
+        warn("Failed to require module: " .. targetName)
+        StarterGui:SetCore("SendNotification", {Title="Require Failed", Text="Check F9 for error.", Duration=5})
         return 
     end
     
     local buffer = {}
-    table.insert(buffer, "--- CASE PARADISE MODULE DUMP ---")
+    table.insert(buffer, "--- MODULE DUMP: " .. targetName .. " ---")
     
     local function serializeTable(t, indent)
         for k,v in pairs(t) do
@@ -228,8 +255,7 @@ local function DeepScanExport()
     end
     
     local success, err = pcall(function()
-        table.insert(buffer, "Module: Cases")
-        serializeTable(Cases, "")
+        serializeTable(Data, "")
         table.insert(buffer, "--- END DUMP ---")
     end)
     
@@ -278,8 +304,8 @@ ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 500, 0, 450) -- Slightly taller
-MainFrame.Position = UDim2.new(0.5, -250, 0.5, -225)
+MainFrame.Size = UDim2.new(0, 500, 0, 480) -- Slightly taller
+MainFrame.Position = UDim2.new(0.5, -250, 0.5, -240)
 MainFrame.BackgroundColor3 = Theme.Background
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = true
@@ -299,7 +325,7 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3.7 Item Finder"
+Title.Text = "Case Paradise | V3.8 Custom Dump"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
@@ -516,18 +542,18 @@ local CrateLayout = Instance.new("UIListLayout"); CrateLayout.Padding = UDim.new
 -- Debug Tab
 CreateSection("Debug", "Power Tools")
 local DeepScanBtn = Instance.new("TextButton")
-DeepScanBtn.Text = "COPY DATA TO CLIPBOARD"
-DeepScanBtn.Size = UDim2.new(1, 0, 0, 40)
+DeepScanBtn.Text = "COPY 'Cases' MODULE"
+DeepScanBtn.Size = UDim2.new(1, 0, 0, 35)
 DeepScanBtn.BackgroundColor3 = Theme.Accent
 DeepScanBtn.TextColor3 = Theme.Text
 DeepScanBtn.Font = Enum.Font.GothamBold
 DeepScanBtn.Parent = Tabs.Debug.Frame
 local DsCorner = Instance.new("UICorner"); DsCorner.Parent = DeepScanBtn
-DeepScanBtn.MouseButton1Click:Connect(DeepScanExport)
+DeepScanBtn.MouseButton1Click:Connect(function() DeepScanExport("Cases") end)
 
 local ListModsBtn = Instance.new("TextButton")
 ListModsBtn.Text = "LIST ALL MODULES (F9)"
-ListModsBtn.Size = UDim2.new(1, 0, 0, 40)
+ListModsBtn.Size = UDim2.new(1, 0, 0, 35)
 ListModsBtn.BackgroundColor3 = Theme.Sidebar
 ListModsBtn.TextColor3 = Theme.SubText
 ListModsBtn.Font = Enum.Font.GothamBold
@@ -535,15 +561,29 @@ ListModsBtn.Parent = Tabs.Debug.Frame
 local LmCorner = Instance.new("UICorner"); LmCorner.Parent = ListModsBtn
 ListModsBtn.MouseButton1Click:Connect(ListModules)
 
-local RefreshBtn2 = Instance.new("TextButton")
-RefreshBtn2.Text = "Refresh Crate List"
-RefreshBtn2.Size = UDim2.new(1, 0, 0, 35)
-RefreshBtn2.BackgroundColor3 = Theme.Sidebar
-RefreshBtn2.TextColor3 = Theme.SubText
-RefreshBtn2.Font = Enum.Font.GothamBold
-RefreshBtn2.Parent = Tabs.Debug.Frame
-local RfCorner = Instance.new("UICorner"); RfCorner.Parent = RefreshBtn2
-RefreshBtn2.MouseButton1Click:Connect(ScrapeCrates)
+-- Custom Dump Section
+CreateSection("Debug", "Dump Custom Module")
+ModuleNameInput = Instance.new("TextBox")
+ModuleNameInput.PlaceholderText = "Module Name (e.g. Prices)"
+ModuleNameInput.Text = "Prices"
+ModuleNameInput.Size = UDim2.new(1, 0, 0, 35)
+ModuleNameInput.BackgroundColor3 = Theme.Search
+ModuleNameInput.TextColor3 = Theme.Text
+ModuleNameInput.Font = Enum.Font.Gotham
+ModuleNameInput.Parent = Tabs.Debug.Frame
+local MnCorner = Instance.new("UICorner"); MnCorner.Parent = ModuleNameInput
+
+local DumpCustomBtn = Instance.new("TextButton")
+DumpCustomBtn.Text = "COPY CUSTOM MODULE"
+DumpCustomBtn.Size = UDim2.new(1, 0, 0, 35)
+DumpCustomBtn.BackgroundColor3 = Theme.Accent
+DumpCustomBtn.TextColor3 = Theme.Text
+DumpCustomBtn.Font = Enum.Font.GothamBold
+DumpCustomBtn.Parent = Tabs.Debug.Frame
+local DcCorner = Instance.new("UICorner"); DcCorner.Parent = DumpCustomBtn
+DumpCustomBtn.MouseButton1Click:Connect(function()
+    DeepScanExport(ModuleNameInput.Text)
+end)
 
 -- Sidebar Layout Order
 local Layout = Sidebar:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout", Sidebar)
@@ -558,7 +598,7 @@ CurrentTab = Tabs.Main
 Tabs.Main.Btn.TextColor3 = Theme.Accent
 Tabs.Main.Frame.Visible = true
 
-print("Case Paradise Script V3.7 Loaded")
+print("Case Paradise Script V3.8 Loaded")
 
 -- [LOOPS]
 task.spawn(function()
