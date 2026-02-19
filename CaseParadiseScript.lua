@@ -1,6 +1,6 @@
--- Case Paradise Script (Premium Native UI) v3.6
+-- Case Paradise Script (Premium Native UI) v3.7
 -- Author: Antigravity
--- Status: SEARCH BAR + FILE EXPORT + COPY (setclipboard)
+-- Status: SEARCH BAR + CLIPBOARD + ITEM FINDER (Best Odds)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -38,6 +38,9 @@ local Theme = {
 local Remotes = { Open = nil, Sell = nil, Rewards = nil, Generic = {} }
 local KnownCrates = {} 
 local FilteredCrates = {} 
+local LoadedCases = {} -- Stores the actual module data
+local ItemSearchInput = nil
+local ItemResultsFrame = nil
 local CrateScrollFrame = nil
 local SearchInput = nil
 
@@ -90,7 +93,7 @@ local function UpdateCrateList()
     CrateScrollFrame.CanvasSize = UDim2.new(0,0,0, #listToUse * 40)
 end
 
--- [MODULE SCRAPER]
+-- [MODULE SCRAPER & DATA LOADER]
 local function ScrapeCrates()
     local foundCrates = {}
     local Success, Module = pcall(function()
@@ -103,10 +106,16 @@ local function ScrapeCrates()
     end)
     
     if Success and Module and type(Module) == "table" then
+        LoadedCases = Module -- STORE FULL DATA
         for k, v in pairs(Module) do
             if type(k) == "string" then table.insert(foundCrates, k)
             elseif type(v) == "table" and v.Name then table.insert(foundCrates, v.Name)
             elseif type(v) == "string" then table.insert(foundCrates, v) end
+            
+            -- Ensure LoadedCases is indexed by name
+            if type(v) == "table" and v.Name then
+                LoadedCases[v.Name] = v
+            end
         end
     else
         local gui = PlayerGui:FindFirstChild("Shop") or PlayerGui
@@ -140,6 +149,58 @@ local function FilterList(text)
     UpdateCrateList()
 end
 
+-- [ITEM FINDER / ODDS CALCULATOR]
+local function FindItem(itemName)
+    if not itemName or itemName == "" then return end
+    itemName = itemName:lower()
+    
+    local results = {}
+    
+    for caseName, data in pairs(LoadedCases) do
+        if type(data) == "table" and data.Drops then
+            for _, drop in pairs(data.Drops) do
+                if drop.Item and drop.Item:lower():find(itemName) then
+                    table.insert(results, {
+                        Case = data.Name or caseName,
+                        Item = drop.Item,
+                        Odds = drop.Odds,
+                        Price = data.Price or 0
+                    })
+                end
+            end
+        end
+    end
+    
+    -- Sort by Best Odds (Highest First)
+    table.sort(results, function(a,b) return (a.Odds or 0) > (b.Odds or 0) end)
+    
+    -- Update UI
+    if not ItemResultsFrame then return end
+    for _, v in pairs(ItemResultsFrame:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
+    
+    for i, res in ipairs(results) do
+        if i > 20 then break end -- Limit results
+        local Btn = Instance.new("TextButton")
+        local oddsPercent = (res.Odds * 100)
+        Btn.Text = string.format("%s\nCase: %s | Odds: %.4f%% | Cost: %s", res.Item, res.Case, oddsPercent, res.Price)
+        Btn.Size = UDim2.new(1, 0, 0, 50)
+        Btn.BackgroundColor3 = Theme.Sidebar
+        Btn.TextColor3 = Theme.Success
+        Btn.Font = Enum.Font.GothamMedium
+        Btn.TextSize = 12
+        Btn.Parent = ItemResultsFrame
+        local CCorner = Instance.new("UICorner"); CCorner.Parent = Btn
+        
+        Btn.MouseButton1Click:Connect(function()
+            Config.SelectedCase = res.Case
+            -- Maybe switch tab?
+             StarterGui:SetCore("SendNotification", {Title="Case Selected", Text="Switched to " .. res.Case, Duration=3})
+        end)
+    end
+    ItemResultsFrame.CanvasSize = UDim2.new(0,0,0, #results * 55)
+end
+
+
 -- [DEEP MODULE SCAN & EXPORT]
 local function DeepScanExport()
     print("--- STARTING EXPORT ---")
@@ -147,7 +208,6 @@ local function DeepScanExport()
     
     if not Success then 
         warn("Failed to require Cases module.")
-        StarterGui:SetCore("SendNotification", {Title="Export Failed", Text="Could not require Cases module.", Duration=5})
         return 
     end
     
@@ -167,7 +227,6 @@ local function DeepScanExport()
         end
     end
     
-    -- Try to serialize
     local success, err = pcall(function()
         table.insert(buffer, "Module: Cases")
         serializeTable(Cases, "")
@@ -176,7 +235,6 @@ local function DeepScanExport()
     
     local fileContent = table.concat(buffer, "\n")
     
-    -- 1. Try SetClipboard (Best option)
     local clipboardSuccess, cerr = pcall(function()
         if setclipboard then
             setclipboard(fileContent)
@@ -186,28 +244,28 @@ local function DeepScanExport()
     end)
 
     if clipboardSuccess then
-        StarterGui:SetCore("SendNotification", {Title="COPIED TO CLIPBOARD!", Text="Paste it into the chat!", Duration=5})
-        return
-    end
-
-    -- 2. Try WriteFile (Backup)
-    local fileSuccess, ferr = pcall(function()
-        if writefile then
-            writefile("CaseParadise_Dump.txt", fileContent)
-            return true
-        end
-        return false
-    end)
-    
-    if fileSuccess then
-        print("DUMP SAVED TO WORKSPACE FOLDER: CaseParadise_Dump.txt")
-        StarterGui:SetCore("SendNotification", {Title="Saved as File", Text="Check workspace/CaseParadise_Dump.txt", Duration=5})
+        StarterGui:SetCore("SendNotification", {Title="COPIED!", Text="To Clipboard", Duration=5})
     else
-        -- 3. Last Resort: Print to Console
         print(fileContent)
-        warn("Could not Copy or Save. Printing to console (F9) instead.")
-        StarterGui:SetCore("SendNotification", {Title="Export Failed", Text="Check console (F9). Copy/Paste failed.", Duration=5})
+        StarterGui:SetCore("SendNotification", {Title="Export Failed", Text="Check console (F9).", Duration=5})
     end
+end
+
+-- [LIST MODULES DEBUG]
+local function ListModules()
+    print("\n--- REPLICATED STORAGE MODULES LIST ---")
+    local modules = ReplicatedStorage:FindFirstChild("Modules")
+    if modules then
+        for _, v in pairs(modules:GetDescendants()) do
+            if v:IsA("ModuleScript") then
+                print("Module Found: " .. v.Name .. " | Parent: " .. v.Parent.Name)
+            end
+        end
+    else
+        print("No 'Modules' folder found in ReplicatedStorage.")
+    end
+    print("--- END LIST ---\n")
+    StarterGui:SetCore("SendNotification", {Title="Modules Listed", Text="Check F9 Console", Duration=5})
 end
 
 -- [UI BUILDER]
@@ -220,8 +278,8 @@ ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 500, 0, 420)
-MainFrame.Position = UDim2.new(0.5, -250, 0.5, -210)
+MainFrame.Size = UDim2.new(0, 500, 0, 450) -- Slightly taller
+MainFrame.Position = UDim2.new(0.5, -250, 0.5, -225)
 MainFrame.BackgroundColor3 = Theme.Background
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = true
@@ -241,7 +299,7 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3.6 Clipboard"
+Title.Text = "Case Paradise | V3.7 Item Finder"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
@@ -388,6 +446,7 @@ end
 
 -- [BUILD TABS]
 CreateTab("Main")
+CreateTab("Finder")
 CreateTab("Crates")
 CreateTab("Debug")
 
@@ -396,6 +455,29 @@ CreateSection("Main", "Automation settings")
 CreateToggle("Main", "Auto Open Case", function(v) Config.AutoOpen = v end)
 CreateToggle("Main", "Auto Sell Items", function(v) Config.AutoSell = v end)
 CreateToggle("Main", "Auto Rewards/Gifts", function(v) Config.AutoLevelCrates = v end)
+
+-- Finder Tab
+CreateSection("Finder", "Item Finder")
+ItemSearchInput = Instance.new("TextBox")
+ItemSearchInput.PlaceholderText = "Type item name (e.g. Ruby)"
+ItemSearchInput.Text = ""
+ItemSearchInput.Size = UDim2.new(1, 0, 0, 35)
+ItemSearchInput.BackgroundColor3 = Theme.Search
+ItemSearchInput.TextColor3 = Theme.Text
+ItemSearchInput.PlaceholderColor3 = Theme.SubText
+ItemSearchInput.Font = Enum.Font.Gotham
+ItemSearchInput.Parent = Tabs.Finder.Frame
+local ISC = Instance.new("UICorner"); ISC.Parent = ItemSearchInput
+
+ItemSearchInput:GetPropertyChangedSignal("Text"):Connect(function()
+    FindItem(ItemSearchInput.Text)
+end)
+
+ItemResultsFrame = Instance.new("ScrollingFrame")
+ItemResultsFrame.Size = UDim2.new(1, 0, 0, 200)
+ItemResultsFrame.BackgroundTransparency = 1
+ItemResultsFrame.Parent = Tabs.Finder.Frame
+local IRLayout = Instance.new("UIListLayout"); IRLayout.Padding = UDim.new(0,5); IRLayout.Parent = ItemResultsFrame
 
 -- Crates Tab
 CreateSection("Crates", "Case Selection")
@@ -443,6 +525,16 @@ DeepScanBtn.Parent = Tabs.Debug.Frame
 local DsCorner = Instance.new("UICorner"); DsCorner.Parent = DeepScanBtn
 DeepScanBtn.MouseButton1Click:Connect(DeepScanExport)
 
+local ListModsBtn = Instance.new("TextButton")
+ListModsBtn.Text = "LIST ALL MODULES (F9)"
+ListModsBtn.Size = UDim2.new(1, 0, 0, 40)
+ListModsBtn.BackgroundColor3 = Theme.Sidebar
+ListModsBtn.TextColor3 = Theme.SubText
+ListModsBtn.Font = Enum.Font.GothamBold
+ListModsBtn.Parent = Tabs.Debug.Frame
+local LmCorner = Instance.new("UICorner"); LmCorner.Parent = ListModsBtn
+ListModsBtn.MouseButton1Click:Connect(ListModules)
+
 local RefreshBtn2 = Instance.new("TextButton")
 RefreshBtn2.Text = "Refresh Crate List"
 RefreshBtn2.Size = UDim2.new(1, 0, 0, 35)
@@ -466,7 +558,7 @@ CurrentTab = Tabs.Main
 Tabs.Main.Btn.TextColor3 = Theme.Accent
 Tabs.Main.Frame.Visible = true
 
-print("Case Paradise Script V3.6 Loaded")
+print("Case Paradise Script V3.7 Loaded")
 
 -- [LOOPS]
 task.spawn(function()
