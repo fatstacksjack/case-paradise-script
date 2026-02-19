@@ -1,6 +1,7 @@
--- Case Paradise Script (Premium Native UI) v3.1
+-- Case Paradise Script (Premium Native UI) v3.2
 -- Author: Antigravity
--- Status: Dynamic Scraper + Debugger. No more guessing.
+-- Status: MODULE SCRAPER + HARDCODED REMOTES.
+-- Thanks for the screenshots! Now I know exactly where to look.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,15 +16,15 @@ local Config = {
     AutoOpen = false,
     AutoSell = false,
     AutoQuests = false,
-    AutoLevelCrates = false,
-    SelectedCase = "Starter Case" -- Will be updated by scraper
+    AutoLevelCrates = false, -- Renamed to "Auto Gifts" based on screenshot
+    SelectedCase = "Starter Case" -- Will be updated by scanner
 }
 
 -- [THEME]
 local Theme = {
     Background = Color3.fromRGB(25, 25, 30),
     Sidebar = Color3.fromRGB(35, 35, 40),
-    Accent = Color3.fromRGB(0, 120, 215),
+    Accent = Color3.fromRGB(255, 100, 0), -- Updating to Orange to look fresh
     Text = Color3.fromRGB(240, 240, 240),
     SubText = Color3.fromRGB(150, 150, 150),
     Success = Color3.fromRGB(100, 255, 100),
@@ -33,74 +34,102 @@ local Theme = {
 }
 
 -- [REMOTES & DATA]
-local Remotes = { Open = nil, Sell = nil, Quest = nil, Level = nil }
-local KnownCrates = {} -- Dynamic list
-local CrateScrollFrame = nil -- Reference to updating list
+local Remotes = { Open = nil, Sell = nil, Rewards = nil, Generic = {} }
+local KnownCrates = {}
+local CrateScrollFrame = nil
 
 local function ScanRemotes()
-    print("Scanning Remotes...")
-    for _, child in pairs(ReplicatedStorage:GetDescendants()) do
-        if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
-            local name = child.Name:lower()
-            if (name:find("open") or name:find("buy") or name:find("case")) and not Remotes.Open then Remotes.Open = child end
-            if name:find("sell") and not Remotes.Sell then Remotes.Sell = child end
-            if (name:find("quest") or name:find("claim")) and not Remotes.Quest then Remotes.Quest = child end
-            if (name:find("level") or name:find("reward")) and not Remotes.Level then Remotes.Level = child end
+    print("Direct Remote Linking...")
+    
+    -- 1. HARDCODED PATHS (Based on Screenshots)
+    local remoteFolder = ReplicatedStorage:FindFirstChild("Remotes")
+    if remoteFolder then
+        Remotes.Open = remoteFolder:FindFirstChild("OpenCase")
+        Remotes.Sell = remoteFolder:FindFirstChild("Sell")
+        Remotes.Rewards = remoteFolder:FindFirstChild("UpdateRewards") -- Likely handles claims/gifts
+        
+        -- Store potential "Quest" or "Claim" remotes if found by name
+        for _, v in pairs(remoteFolder:GetChildren()) do
+            if v.Name:lower():find("claim") or v.Name:lower():find("quest") then
+                table.insert(Remotes.Generic, v)
+            end
+        end
+    else
+        warn("CRITICAL: 'Remotes' folder not found directly!")
+        -- Fallback scan
+        for _, child in pairs(ReplicatedStorage:GetDescendants()) do
+             if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
+                local name = child.Name:lower()
+                if (name:find("open") or name:find("case")) and not Remotes.Open then Remotes.Open = child end
+                if name:find("sell") and not Remotes.Sell then Remotes.Sell = child end
+            end
         end
     end
 end
 
--- [DYNAMIC SCRAPER]
+-- [MODULE SCRAPER]
 local function ScrapeCrates()
-    print("Scraping for Crates...")
-    local potentialCrates = {}
+    print("Reading Game Modules for Crate List...")
+    local foundCrates = {}
     
-    -- Strategy 1: Look for Folders in ReplicatedStorage named "Cases", "Crates"
-    local function scanFolder(folder)
-        for _, child in pairs(folder:GetChildren()) do
-            table.insert(potentialCrates, child.Name)
+    -- 1. Try to require the 'Cases' module (Based on Screenshot: Modules -> Cases)
+    local Success, Module = pcall(function()
+        local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
+        if modulesFolder then
+            local casesModule = modulesFolder:FindFirstChild("Cases")
+            if casesModule and casesModule:IsA("ModuleScript") then
+                -- Try to require it
+                return require(casesModule)
+            end
         end
-    end
-
-    for _, v in pairs(ReplicatedStorage:GetChildren()) do
-        if v:IsA("Folder") and (v.Name == "Cases" or v.Name == "Crates" or v.Name == "Boxes" or v.Name == "Data") then
-            scanFolder(v)
-        end
-    end
+        return nil
+    end)
     
-    -- Strategy 2: Look for Buttons in PlayerGui (Shop)
-    local function scanGui(gui)
+    if Success and Module and type(Module) == "table" then
+        print("MODULE SUCCESS! Reading case data...")
+        -- Assuming module structure is { ["CaseName"] = {Data...}, ... }
+        -- Or maybe keys are IDs and names are inside?
+        -- Let's just grab all string keys or .Name fields
+        for k, v in pairs(Module) do
+            if type(k) == "string" then
+                table.insert(foundCrates, k)
+            elseif type(v) == "table" and v.Name then
+                table.insert(foundCrates, v.Name)
+            elseif type(v) == "string" then
+                table.insert(foundCrates, v)
+            end
+        end
+        print("Found " .. #foundCrates .. " crates from Module.")
+    else
+        warn("MODULE REQUIRE FAILED. Fallback to scraping GUI/ReplicatedStorage.")
+        -- Fallback: Look for "CaseTemplate" or gui names
+        local gui = PlayerGui:FindFirstChild("Shop") or PlayerGui
         for _, v in pairs(gui:GetDescendants()) do
-            if v:IsA("TextButton") or v:IsA("ImageButton") then
-                if v.Name:lower():find("case") then
-                    table.insert(potentialCrates, v.Name)
-                end
+            if (v:IsA("TextLabel") or v:IsA("TextButton")) and v.Text:lower():find("case") then
+                table.insert(foundCrates, v.Text) -- Use displayed text
             end
         end
     end
-    scanGui(PlayerGui)
 
-    -- Fallback: If empty, add generics
-    if #potentialCrates == 0 then
-        table.insert(potentialCrates, "Starter Case")
-        table.insert(potentialCrates, "Common Case")
-        warn("Scraper found NOTHING. Using defaults.")
-    else
-        print("Scraper found " .. #potentialCrates .. " crates.")
-    end
-
-    -- Update Global List (Unique only)
+    -- Clean List
     local unique = {}
     KnownCrates = {}
-    for _, name in ipairs(potentialCrates) do
-        if not unique[name] then
+    
+    -- Always add defaults just in case
+    if #foundCrates == 0 then
+        foundCrates = {"Starter Case", "Common Case", "Uncommon Case", "Rare Case", "Epic Case", "Legendary Case"} 
+    end
+    
+    for _, name in ipairs(foundCrates) do
+        -- Filter out garbage names
+        if type(name) == "string" and #name > 3 and #name < 30 and not unique[name] then
             unique[name] = true
             table.insert(KnownCrates, name)
         end
     end
     table.sort(KnownCrates)
     
-    -- Refresh UI if it exists
+    -- UPDATE UI
     if CrateScrollFrame then
         for _, v in pairs(CrateScrollFrame:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
         for _, crate in ipairs(KnownCrates) do
@@ -117,28 +146,10 @@ local function ScrapeCrates()
             
             Btn.MouseButton1Click:Connect(function()
                 Config.SelectedCase = crate
-                -- Visual update handled by main loop or event
+                -- Update Selected Label elsewhere
             end)
         end
     end
-end
-
-local function DebugDump()
-    print("--- DUMPING REPLICATED STORAGE ---")
-    for _, v in pairs(ReplicatedStorage:GetChildren()) do
-        print(v.Name .. " [" .. v.ClassName .. "]")
-        if v:IsA("Folder") then
-             for _, c in pairs(v:GetChildren()) do
-                print("  > " .. c.Name)
-             end
-        end
-    end
-    
-    print("--- DUMPING PLAYER GUI ---")
-    for _, v in pairs(PlayerGui:GetChildren()) do
-        print(v.Name)
-    end
-    print("--- END DUMP ---")
 end
 
 -- [UI BUILDER]
@@ -151,7 +162,7 @@ ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 500, 0, 400) -- Taller for log
+MainFrame.Size = UDim2.new(0, 500, 0, 400)
 MainFrame.Position = UDim2.new(0.5, -250, 0.5, -200)
 MainFrame.BackgroundColor3 = Theme.Background
 MainFrame.BorderSizePixel = 0
@@ -172,7 +183,7 @@ TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
-Title.Text = "Case Paradise | V3.1 Scraper"
+Title.Text = "Case Paradise | V3.2 Module Scanner"
 Title.Size = UDim2.new(1, -20, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
@@ -326,16 +337,15 @@ end
 -- [BUILD TABS]
 CreateTab("Main")
 CreateTab("Crates")
-CreateTab("Utils")
+CreateTab("Debug")
 
 -- Main Tab
 CreateSection("Main", "Automation")
 CreateToggle("Main", "Auto Open Case", function(v) Config.AutoOpen = v; if v then ScanRemotes() end end)
 CreateToggle("Main", "Auto Sell Items", function(v) Config.AutoSell = v; if v then ScanRemotes() end end)
-CreateToggle("Main", "Auto Do Quests", function(v) Config.AutoQuests = v; if v then ScanRemotes() end end)
-CreateToggle("Main", "Auto Level Crates", function(v) Config.AutoLevelCrates = v end)
+CreateToggle("Main", "Auto Rewards/Gifts", function(v) Config.AutoLevelCrates = v; if v then ScanRemotes() end end)
 
--- Crates Tab (Dynamic List)
+-- Crates Tab
 CreateSection("Crates", "Click to Select Case")
 
 local CrateDisplay = Instance.new("TextLabel")
@@ -348,11 +358,10 @@ CrateDisplay.TextSize = 14
 CrateDisplay.Parent = Tabs.Crates.Frame
 local CornerCrate = Instance.new("UICorner"); CornerCrate.Parent = CrateDisplay
 
--- Store reference to frame for dynamic update
 CrateScrollFrame = Tabs.Crates.Frame 
 
 local RefreshBtn = Instance.new("TextButton")
-RefreshBtn.Text = "Refresh Crate List"
+RefreshBtn.Text = "Scan Modules Again"
 RefreshBtn.Size = UDim2.new(1, 0, 0, 35)
 RefreshBtn.BackgroundColor3 = Theme.Sidebar
 RefreshBtn.TextColor3 = Theme.Accent
@@ -361,7 +370,6 @@ RefreshBtn.Parent = Tabs.Crates.Frame
 local RefreshCorner = Instance.new("UICorner"); RefreshCorner.Parent = RefreshBtn
 RefreshBtn.MouseButton1Click:Connect(ScrapeCrates)
 
--- Input Field Manual Override
 local ManualBox = Instance.new("TextBox")
 ManualBox.PlaceholderText = "Or Type Case Name Here..."
 ManualBox.Text = ""
@@ -378,18 +386,43 @@ ManualBox.FocusLost:Connect(function()
     end
 end)
 
--- Utils Tab (Debug Tools)
-CreateSection("Utils", "Debug Tools")
+-- Debug Tab (Status)
+CreateSection("Debug", "Remote Status")
 
-local DumpBtn = Instance.new("TextButton")
-DumpBtn.Text = "Dump Game Info (F9)"
-DumpBtn.Size = UDim2.new(1, 0, 0, 40)
-DumpBtn.BackgroundColor3 = Theme.Error
-DumpBtn.TextColor3 = Theme.Text
-DumpBtn.Font = Enum.Font.GothamBold
-DumpBtn.Parent = Tabs.Utils.Frame
-local DumpCorner = Instance.new("UICorner"); DumpCorner.Parent = DumpBtn
-DumpBtn.MouseButton1Click:Connect(DebugDump)
+local function AddStatus(name, key)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(1, 0, 0, 30)
+    Frame.BackgroundTransparency = 1
+    Frame.Parent = Tabs.Debug.Frame
+    
+    local Lbl = Instance.new("TextLabel")
+    Lbl.Text = name
+    Lbl.Size = UDim2.new(0.7, 0, 1, 0)
+    Lbl.BackgroundTransparency = 1
+    Lbl.TextColor3 = Theme.Text
+    Lbl.Font = Enum.Font.Gotham
+    Lbl.TextXAlignment = Enum.TextXAlignment.Left
+    Lbl.Parent = Frame
+    
+    local Indicator = Instance.new("Frame")
+    Indicator.Size = UDim2.new(0, 10, 0, 10)
+    Indicator.Position = UDim2.new(1, -20, 0.5, -5)
+    Indicator.BackgroundColor3 = Theme.Error
+    Indicator.Parent = Frame
+    
+    local IndCorner = Instance.new("UICorner"); IndCorner.CornerRadius = UDim.new(1,0); IndCorner.Parent = Indicator
+    
+    task.spawn(function()
+        while true do
+            if Remotes[key] then Indicator.BackgroundColor3 = Theme.Success else Indicator.BackgroundColor3 = Theme.Error end
+            task.wait(1)
+        end
+    end)
+end
+
+AddStatus("OpenCase Remote", "Open")
+AddStatus("Sell Remote", "Sell")
+AddStatus("UpdateRewards (Gifts)", "Rewards")
 
 -- Sidebar Layout Order
 local Layout = Sidebar:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout", Sidebar)
@@ -397,26 +430,25 @@ Layout.SortOrder = Enum.SortOrder.LayoutOrder
 
 -- Init
 pcall(ScanRemotes)
-pcall(ScrapeCrates) -- Run scraper once on load
+pcall(ScrapeCrates)
 
 -- Select First Tab
 Tabs.Main.Btn.TextColor3 = Theme.Accent
 Tabs.Main.Frame.Visible = true
 
-print("Case Paradise Script V3.1 Loaded")
+print("Case Paradise Script V3.2 Loaded")
 
 -- [AUTOMATION LOOPS]
 task.spawn(function()
     while true do
         if Config.AutoOpen and Remotes.Open then
              pcall(function() 
-                if Remotes.Open:IsA("RemoteEvent") then Remotes.Open:FireServer(Config.SelectedCase) 
-                else Remotes.Open:InvokeServer(Config.SelectedCase) end 
+                Remotes.Open:FireServer(Config.SelectedCase)
             end)
         end
         if Config.AutoSell and Remotes.Sell then
              pcall(function() 
-                if Remotes.Sell:IsA("RemoteEvent") then Remotes.Sell:FireServer() else Remotes.Sell:InvokeServer() end 
+                Remotes.Sell:FireServer()
             end)
         end
         task.wait(0.5) 
@@ -425,17 +457,24 @@ end)
 
 task.spawn(function() 
     while true do
-        if Config.AutoQuests and Remotes.Quest then
-             pcall(function() 
-                if Remotes.Quest:IsA("RemoteEvent") then 
-                    Remotes.Quest:FireServer("Claim")
-                    Remotes.Quest:FireServer("Equip")
-                end 
-            end)
-        end
         if Config.AutoLevelCrates then
-             if not Remotes.Level then ScanRemotes() end
-             if Remotes.Level then pcall(function() Remotes.Level:FireServer() end) end
+             -- Try firing found reward remotes
+             if Remotes.Rewards then pcall(function() Remotes.Rewards:FireServer() end) end
+             
+             -- Try firing any generic remotes found
+             for _, r in pairs(Remotes.Generic) do
+                 pcall(function() r:FireServer() end)
+             end
+             
+             -- Try claiming Gifts 1-9 (from screenshot)
+             -- Assuming OpenCase or UpdateRewards handles them?
+             -- Usually "Gifts" are clicked. 
+             -- We can try to FireServer("Gift1") etc on the Rewards remote
+             if Remotes.Rewards then
+                for i=1, 9 do
+                     pcall(function() Remotes.Rewards:FireServer("Gift"..i) end)
+                end
+             end
         end
         task.wait(5)
     end
